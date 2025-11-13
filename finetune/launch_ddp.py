@@ -83,15 +83,17 @@ def main():
     env['NCCL_DEBUG'] = 'WARN'
     env['PYTHONFAULTHANDLER'] = '1'
     
-    # CRITICAL: GCP's NCCL shim requires all NCCL config vars to be UNSET
-    # Remove any NCCL configuration variables that might be set
+    # CRITICAL: GCP's NCCL shim configuration
+    # Set NCCL_NET_GDR_LEVEL as required by GCP
+    env['NCCL_NET_GDR_LEVEL'] = 'PIX'
+    
+    # Remove any other NCCL configuration variables that must be unset
     nccl_vars_to_remove = [
         'TORCH_NCCL_ASYNC_ERROR_HANDLING',
         'NCCL_P2P_LEVEL',
         'NCCL_SHM_DISABLE', 
         'NCCL_IB_DISABLE',
         'NCCL_SOCKET_IFNAME',
-        'NCCL_NET_GDR_LEVEL',
         'NCCL_P2P_DISABLE',
     ]
     for var in nccl_vars_to_remove:
