@@ -1,6 +1,7 @@
 import os, sys, math, json, random, argparse, time, gc
 from dataclasses import dataclass
 from typing import List, Tuple, Dict, Optional
+from datetime import timedelta
 
 import torch
 import torch.nn as nn
@@ -56,9 +57,13 @@ def setup_distributed(args):
     if args.local_rank == -1:
         args.local_rank = int(os.environ.get('LOCAL_RANK', 0))
     
+    # Set longer timeout for slow operations (default is 30 minutes)
+    timeout_minutes = 60
+    timeout = timedelta(minutes=timeout_minutes)
+    
     # Initialize process group
     if not dist.is_initialized():
-        dist.init_process_group(backend=args.dist_backend)
+        dist.init_process_group(backend=args.dist_backend, timeout=timeout)
     
     rank = dist.get_rank()
     world_size = dist.get_world_size()
@@ -71,6 +76,7 @@ def setup_distributed(args):
     if is_main:
         print(f"[DDP] Initialized with {world_size} GPUs")
         print(f"[DDP] Backend: {args.dist_backend}")
+        print(f"[DDP] Timeout: {timeout_minutes} minutes")
     
     return rank, world_size, is_main
 
@@ -1070,13 +1076,31 @@ def main():
 
     # DDP: Wrap model with DistributedDataParallel
     if args.ddp:
+        # Check GPU memory before DDP wrapping
+        if torch.cuda.is_available():
+            mem_allocated = torch.cuda.memory_allocated(args.local_rank) / 1024**3
+            mem_reserved = torch.cuda.memory_reserved(args.local_rank) / 1024**3
+            print(f'[Rank {rank}] GPU {args.local_rank} memory: {mem_allocated:.2f}GB allocated, {mem_reserved:.2f}GB reserved', flush=True)
+        
+        # Ensure all ranks reach this point before DDP wrapping
+        print(f'[Rank {rank}] Waiting at pre-DDP barrier...', flush=True)
+        dist.barrier()
+        print(f'[Rank {rank}] Passed pre-DDP barrier', flush=True)
+        
         print(f'[Rank {rank}] Wrapping model with DDP...', flush=True)
         from torch.nn.parallel import DistributedDataParallel as DDP
-        model = DDP(model, device_ids=[args.local_rank], output_device=args.local_rank,
-                    find_unused_parameters=False)
-        print(f'[Rank {rank}] Model wrapped with DDP', flush=True)
+        try:
+            model = DDP(model, device_ids=[args.local_rank], output_device=args.local_rank,
+                        find_unused_parameters=False, broadcast_buffers=True)
+            print(f'[Rank {rank}] Model wrapped with DDP successfully', flush=True)
+        except Exception as e:
+            print(f'[Rank {rank}] ERROR wrapping model with DDP: {e}', file=sys.stderr, flush=True)
+            import traceback
+            traceback.print_exc()
+            raise
+        
         if is_main_process:
-            print(f'[DDP] Model wrapped with DistributedDataParallel')
+            print(f'[DDP] All ranks: Model wrapped with DistributedDataParallel')
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
