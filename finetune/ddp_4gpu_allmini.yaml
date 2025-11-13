@@ -15,7 +15,7 @@ batch_size: 256          # Per-GPU batch size (reduce if OOM)
 accum_steps: 2           # Gradient accumulation steps
 
 # ---- Training Data ----
-train_tsv: train.tsv
+train_tsv: ../data/processed/train.tsv
 dev_tsv: null            # Will auto-split 10% from train
 val_ratio: 0.1
 shuffle_before_split: true

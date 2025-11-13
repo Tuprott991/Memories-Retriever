@@ -795,7 +795,9 @@ def export_index(model, tokenizer, device, texts: List[str], out_dir: str, max_l
 
 def parse_args():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--train_tsv', type=str, required=True)
+    # Config file support
+    ap.add_argument('--config', type=str, default=None, help='Path to YAML config file (overrides defaults)')
+    ap.add_argument('--train_tsv', type=str, required=False)  # Changed to not required if config provided
     ap.add_argument('--dev_tsv', type=str, default=None)
     ap.add_argument('--val_ratio', type=float, default=0.02)
     ap.add_argument('--shuffle_before_split', action='store_true')
@@ -890,7 +892,39 @@ def parse_args():
     ap.add_argument('--dist_backend', type=str, default='nccl',
                     help='Backend for distributed training (nccl for GPU, gloo for CPU)')
 
-    return ap.parse_args()
+    args = ap.parse_args()
+    
+    # Load YAML config if provided
+    if args.config:
+        import yaml
+        with open(args.config, 'r') as f:
+            config = yaml.safe_load(f)
+        
+        # Override defaults with config file values
+        # Command-line args take precedence over config file
+        for key, value in config.items():
+            # Only set if not already provided via command-line
+            # Check if the arg was explicitly provided or is just the default
+            if hasattr(args, key):
+                # For required args like train_tsv, always use config if arg is None
+                if getattr(args, key) is None or key == 'train_tsv' and args.train_tsv is None:
+                    setattr(args, key, value)
+                # For boolean flags (action='store_true'), use config if not set to True
+                elif isinstance(value, bool) and not getattr(args, key):
+                    setattr(args, key, value)
+                # For other args, only use config if current value equals the default
+                else:
+                    # Get the default value from argument parser
+                    for action in ap._actions:
+                        if action.dest == key and getattr(args, key) == action.default:
+                            setattr(args, key, value)
+                            break
+    
+    # Validate that train_tsv is provided either via config or command-line
+    if not args.train_tsv:
+        ap.error("--train_tsv is required (either via --train_tsv or --config)")
+    
+    return args
 
 def main():
     args = parse_args()
