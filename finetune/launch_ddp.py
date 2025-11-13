@@ -70,9 +70,13 @@ def main():
     print("Starting training...")
     print()
     
+    # Set environment variable for better error messages
+    env = os.environ.copy()
+    env['TORCH_DISTRIBUTED_DEBUG'] = 'DETAIL'
+    
     # Execute
     try:
-        result = subprocess.run(cmd)
+        result = subprocess.run(cmd, env=env)
         exit_code = result.returncode
         
         print()

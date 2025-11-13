@@ -955,6 +955,8 @@ def main():
     # Device setup (DDP sets device per process)
     if args.ddp:
         device = torch.device(f'cuda:{args.local_rank}')
+        # CRITICAL: Set the device for this process BEFORE any CUDA operations
+        torch.cuda.set_device(args.local_rank)
     else:
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
     
@@ -963,7 +965,7 @@ def main():
         if args.ddp:
             print(f'[DDP] Rank {rank}/{world_size}, GPU {args.local_rank}')
 
-    if device == 'cuda':
+    if str(device).startswith('cuda'):
         try:
             import torch.backends.cuda as cuda_backends
             cuda_backends.sdp_kernel(enable_flash=True, enable_mem_efficient=True, enable_math=False)
@@ -1001,12 +1003,22 @@ def main():
 
     # DDP: Only rank 0 downloads tokenizer first, others wait
     if args.ddp:
-        if is_main_process:
-            tokenizer = AutoTokenizer.from_pretrained(args.tokenizer, use_fast=True)
-        # Barrier with explicit device_ids to avoid warning
-        dist.barrier(device_ids=[args.local_rank] if torch.cuda.is_available() else None)
-        if not is_main_process:
-            tokenizer = AutoTokenizer.from_pretrained(args.tokenizer, use_fast=True)
+        try:
+            if is_main_process:
+                print(f'[Rank {rank}] Loading tokenizer...')
+                tokenizer = AutoTokenizer.from_pretrained(args.tokenizer, use_fast=True)
+                print(f'[Rank {rank}] Tokenizer loaded, waiting at barrier...')
+            # Barrier: use the already-set device for this process
+            dist.barrier(device_ids=[args.local_rank])
+            if not is_main_process:
+                print(f'[Rank {rank}] Loading tokenizer after barrier...')
+                tokenizer = AutoTokenizer.from_pretrained(args.tokenizer, use_fast=True)
+                print(f'[Rank {rank}] Tokenizer loaded successfully')
+        except Exception as e:
+            print(f'[Rank {rank}] ERROR during tokenizer loading: {e}', file=sys.stderr)
+            import traceback
+            traceback.print_exc()
+            raise
     else:
         tokenizer = AutoTokenizer.from_pretrained(args.tokenizer, use_fast=True)
     
@@ -1037,8 +1049,8 @@ def main():
             if is_main_process:
                 teacher = TeacherEncoder(args.teacher, device=device)
                 args.m_teacher = teacher.dim
-            # Barrier with explicit device_ids to avoid warning
-            dist.barrier(device_ids=[args.local_rank] if torch.cuda.is_available() else None)
+            # Barrier: use the already-set device for this process
+            dist.barrier(device_ids=[args.local_rank])
             if not is_main_process:
                 teacher = TeacherEncoder(args.teacher, device=device)
                 args.m_teacher = teacher.dim
