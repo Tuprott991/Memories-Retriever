@@ -61,6 +61,11 @@ def setup_distributed(args):
     if args.local_rank == -1:
         args.local_rank = int(os.environ.get('LOCAL_RANK', 0))
     
+    # CRITICAL: Unset TORCH_NCCL_ASYNC_ERROR_HANDLING before init_process_group
+    # GCP's NCCL expects this to be unset
+    if 'TORCH_NCCL_ASYNC_ERROR_HANDLING' in os.environ:
+        del os.environ['TORCH_NCCL_ASYNC_ERROR_HANDLING']
+    
     # CRITICAL: Set device BEFORE initializing process group
     # This tells PyTorch which GPU this process should use
     torch.cuda.set_device(args.local_rank)
