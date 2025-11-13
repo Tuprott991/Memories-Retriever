@@ -1,0 +1,106 @@
+# DDP Multi-GPU Training Config for LongMatrix (4x A100)
+# This config is optimized for training on 4 GPUs with DDP
+# Usage: python launch_ddp.py --config ddp_4gpu_allmini.yaml --num_gpus 4
+# Or: .\launch_ddp.ps1 -ConfigFile ddp_4gpu_allmini.yaml -NumGPUs 4
+
+# ---- DDP Settings ----
+ddp: true                # Enable Distributed Data Parallel
+world_size: 4            # Number of GPUs (auto-set by torchrun)
+dist_backend: nccl       # NCCL backend for GPU communication
+
+# ---- Batch Size (PER GPU) ----
+# Total effective batch size = batch_size * accum_steps * num_gpus
+# Example: 256 * 2 * 4 = 2048 effective batch size
+batch_size: 256          # Per-GPU batch size (reduce if OOM)
+accum_steps: 2           # Gradient accumulation steps
+
+# ---- Training Data ----
+train_tsv: ../data/processed/train.tsv
+dev_tsv: null            # Will auto-split 10% from train
+val_ratio: 0.1
+shuffle_before_split: true
+max_train_rows: null     # Use all data
+
+# ---- Model Architecture (LARGE) ----
+d_lex: 384               # Lexical dimension
+d_lex_emb: 1024          # Lexical embedding dimension
+rank: 512                # Low-rank projection dimension
+heads: 8                 # Multi-head attention heads
+
+# ---- Training Hyperparameters ----
+epochs: 20
+lr: 0.0002               # Learning rate (can increase for multi-GPU)
+weight_decay: 0.01
+warmup_steps: 1000
+lr_schedule: cosine
+max_grad_norm: 1.0
+
+# ---- Mixed Precision & Optimization ----
+dtype: bf16               # BF16 for A100 (better than FP16)
+allow_tf32: true          # Enable TF32 for faster matmul on A100
+grad_ckpt: true           # Gradient checkpointing to save memory
+torch_compile: false      # Disable torch.compile (can conflict with DDP)
+
+# ---- Model Features ----
+late_interaction: true    # ColBERT-style late interaction
+topk_q: 4                # Top-K tokens for query
+topk_d: 1                # Top-K tokens for document
+
+# ---- Loss Weights ----
+lambda_ret: 1.0          # Retrieval loss
+lambda_ent: 0.0015       # Entropy regularization
+lambda_lex: 0.25         # Lexical loss
+lambda_ortho: 0.001      # Orthogonality loss
+lambda_distill: 0.0      # Distillation (disable for speed)
+margin_lex: 0.25
+
+# ---- Negative Sampling ----
+neg_per_sample: 7
+inbatch_negs: false
+
+# ---- Teacher Model ----
+teacher: sentence-transformers/all-MiniLM-L6-v2
+tokenizer: sentence-transformers/all-MiniLM-L6-v2
+teacher_bs: 32
+m_teacher: 384
+
+# ---- Evaluation ----
+dev_eval_every_epochs: 0.2   # Evaluate 5 times per epoch
+dev_eval_sample: 2000        # Use 2000 samples for faster eval
+early_stop_patience: 3
+early_stop_min_delta: 0.0001
+
+# ---- EMA (Exponential Moving Average) ----
+ema: 0.999               # EMA for better convergence
+
+# ---- Logging & Checkpointing ----
+output_dir: runs/ddp_4gpu_allmini
+log_every: 50
+num_workers: 4           # Data loading workers per GPU
+
+# ---- W&B Logging (Optional) ----
+wandb: false             # Set to true to enable W&B logging
+wandb_project: longmatrix-ddp
+wandb_run: 4gpu_large
+wandb_mode: online
+wandb_table_samples: 8
+
+# ---- Export Settings ----
+export_after_train: false
+export_from: train
+export_file: null
+export_include_negs: false
+export_out_dir: null
+faiss_hnsw_m: 64
+faiss_hnsw_efc: 200
+faiss_search_efs: 256
+export_demo_query: "what energy is used in photosynthesis"
+export_demo_topk: 5
+
+# ---- Misc ----
+seed: 42
+max_len: 512
+attn_backend: sdpa       # SDPA for Flash Attention
+fp16: false
+temp: 0.07
+resume: null             # Path to checkpoint to resume from

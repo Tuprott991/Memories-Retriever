@@ -32,6 +32,53 @@ try:
 except Exception:
     _HAS_ST = False
 
+# ---- DDP support ----
+try:
+    import torch.distributed as dist
+    _HAS_DDP = True
+except Exception:
+    _HAS_DDP = False
+
+# ------------------------- DDP Setup -------------------------
+
+def setup_distributed(args):
+    """
+    Initialize distributed training (DDP) if enabled.
+    Returns: (rank, world_size, is_main_process)
+    """
+    if not args.ddp:
+        return 0, 1, True
+    
+    if not _HAS_DDP:
+        raise RuntimeError("torch.distributed not available. Please use PyTorch with distributed support.")
+    
+    # Get local_rank from environment if not set (torchrun sets this)
+    if args.local_rank == -1:
+        args.local_rank = int(os.environ.get('LOCAL_RANK', 0))
+    
+    # Initialize process group
+    if not dist.is_initialized():
+        dist.init_process_group(backend=args.dist_backend)
+    
+    rank = dist.get_rank()
+    world_size = dist.get_world_size()
+    
+    # Set device for this process
+    torch.cuda.set_device(args.local_rank)
+    
+    is_main = (rank == 0)
+    
+    if is_main:
+        print(f"[DDP] Initialized with {world_size} GPUs")
+        print(f"[DDP] Backend: {args.dist_backend}")
+    
+    return rank, world_size, is_main
+
+def cleanup_distributed():
+    """Clean up distributed training."""
+    if dist.is_initialized():
+        dist.destroy_process_group()
+
 # ------------------------- Data utils -------------------------
 
 def read_tsv(path: str, max_rows: Optional[int] = None) -> List[Tuple[str, str, List[str]]]:
@@ -597,6 +644,9 @@ def train_one_epoch(model, teacher, data_loader, tokenizer, device, args, scaler
 def _sanitize_args_for_save(args):
     d = dict(vars(args))
     d.pop('_ema_obj', None)
+    # Remove _dev_rows to prevent bloating checkpoint files
+    # The dev_rows data can be 100+ MB and is not needed for inference/resuming
+    d.pop('_dev_rows', None)
     return d
 
 @torch.no_grad()
@@ -830,28 +880,54 @@ def parse_args():
     ap.add_argument('--topk_q', type=int, default=4, help='Số token K cho query khi late_interaction.')
     ap.add_argument('--topk_d', type=int, default=1, help='Số token K cho doc khi late_interaction (1 để nhanh).')
 
+    # DDP: Distributed Data Parallel for multi-GPU training
+    ap.add_argument('--ddp', action='store_true',
+                    help='Enable Distributed Data Parallel (DDP) for multi-GPU training')
+    ap.add_argument('--local_rank', type=int, default=-1,
+                    help='Local rank for distributed training (auto-set by torch.distributed.launch)')
+    ap.add_argument('--world_size', type=int, default=1,
+                    help='Number of GPUs/processes for DDP (e.g., 4 for 4 GPUs)')
+    ap.add_argument('--dist_backend', type=str, default='nccl',
+                    help='Backend for distributed training (nccl for GPU, gloo for CPU)')
+
     return ap.parse_args()
 
 def main():
     args = parse_args()
-    os.makedirs(args.output_dir, exist_ok=True)
-
-    # Lưu YAML config local (tái hiện run sau này)
-    yaml_path = os.path.join(args.output_dir, "config_used.yaml")
-    safe_args = _sanitize_args_for_save(args)
-    with open(yaml_path, "w", encoding="utf-8") as f:
-        yaml.safe_dump(safe_args, f, allow_unicode=True)
-
-    print(f"[save] wrote config to {yaml_path}")
+    
+    # Setup DDP first
+    rank, world_size, is_main_process = setup_distributed(args)
+    
+    if is_main_process:
+        os.makedirs(args.output_dir, exist_ok=True)
+        
+        # Lưu YAML config local (tái hiện run sau này)
+        yaml_path = os.path.join(args.output_dir, "config_used.yaml")
+        safe_args = _sanitize_args_for_save(args)
+        with open(yaml_path, "w", encoding="utf-8") as f:
+            yaml.safe_dump(safe_args, f, allow_unicode=True)
+        
+        print(f"[save] wrote config to {yaml_path}")
 
     # Ưu tiên --dtype; nếu user dùng --fp16 cũ thì ép dtype=fp16 để tương thích
     if args.fp16:
         args.dtype = 'fp16'
 
-    random.seed(args.seed)
-    torch.manual_seed(args.seed)
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    print('Device:', device, '| dtype:', args.dtype)
+    # Seed for reproducibility (with DDP offset)
+    seed = args.seed + rank
+    random.seed(seed)
+    torch.manual_seed(seed)
+    
+    # Device setup (DDP sets device per process)
+    if args.ddp:
+        device = torch.device(f'cuda:{args.local_rank}')
+    else:
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    
+    if is_main_process:
+        print('Device:', device, '| dtype:', args.dtype)
+        if args.ddp:
+            print(f'[DDP] Rank {rank}/{world_size}, GPU {args.local_rank}')
 
     if device == 'cuda':
         try:
@@ -892,8 +968,17 @@ def main():
     tokenizer = AutoTokenizer.from_pretrained(args.tokenizer, use_fast=True)
     ds = TripletDataset(train_rows, neg_per_sample=args.neg_per_sample)
     collate = Collator(tokenizer, args.max_len)
-    dl = DataLoader(ds, batch_size=args.batch_size, shuffle=True,
-                    num_workers=args.num_workers, pin_memory=(device=='cuda'),
+    
+    # DDP: Use DistributedSampler for multi-GPU training
+    sampler = None
+    shuffle = True
+    if args.ddp:
+        from torch.utils.data.distributed import DistributedSampler
+        sampler = DistributedSampler(ds, num_replicas=world_size, rank=rank, shuffle=True)
+        shuffle = False  # Sampler handles shuffling
+    
+    dl = DataLoader(ds, batch_size=args.batch_size, shuffle=shuffle, sampler=sampler,
+                    num_workers=args.num_workers, pin_memory=(str(device).startswith('cuda')),
                     persistent_workers=(args.num_workers>0),
                     prefetch_factor=4,
                     collate_fn=collate)
@@ -915,18 +1000,29 @@ def main():
         heads=args.heads
     ).to(device)
 
-    # torch.compile (PyTorch >= 2.3)
-    if args.torch_compile and device == 'cuda':
+    # torch.compile (PyTorch >= 2.3) - before DDP wrapping
+    if args.torch_compile and str(device).startswith('cuda'):
         try:
             model = torch.compile(model, mode='max-autotune')
-            print('[compile] torch.compile enabled (mode=max-autotune)')
+            if is_main_process:
+                print('[compile] torch.compile enabled (mode=max-autotune)')
         except Exception as e:
-            print('[warn] torch.compile failed, continue without compile:', e)
+            if is_main_process:
+                print('[warn] torch.compile failed, continue without compile:', e)
 
     if args.resume and os.path.exists(args.resume):
         ckpt = torch.load(args.resume, map_location='cpu', weights_only=False)
         model.load_state_dict(ckpt['model'])
-        print('[resume] loaded weights from', args.resume)
+        if is_main_process:
+            print('[resume] loaded weights from', args.resume)
+
+    # DDP: Wrap model with DistributedDataParallel
+    if args.ddp:
+        from torch.nn.parallel import DistributedDataParallel as DDP
+        model = DDP(model, device_ids=[args.local_rank], output_device=args.local_rank,
+                    find_unused_parameters=False)
+        if is_main_process:
+            print(f'[DDP] Model wrapped with DistributedDataParallel')
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
@@ -962,10 +1058,18 @@ def main():
     patience_left = args.early_stop_patience
 
     for epoch in range(1, args.epochs + 1):
-        print(f'=== Epoch {epoch}/{args.epochs} ===')
+        # DDP: Set epoch for DistributedSampler (for proper shuffling)
+        if args.ddp and sampler is not None:
+            sampler.set_epoch(epoch)
+        
+        if is_main_process:
+            print(f'=== Epoch {epoch}/{args.epochs} ===')
+        
         avg_loss = train_one_epoch(model, teacher, dl, tokenizer, device, args, scaler, optimizer, scheduler)
-        print(f'[epoch {epoch}] train loss: {avg_loss:.4f}')
-        if args.wandb:
+        
+        if is_main_process:
+            print(f'[epoch {epoch}] train loss: {avg_loss:.4f}')
+        if args.wandb and is_main_process:
             wandb.log({'train/loss': avg_loss, 'epoch': epoch})
 
         metrics = None
@@ -991,30 +1095,41 @@ def main():
             if improved:
                 best_recall = recall
                 patience_left = args.early_stop_patience
-                ckpt = os.path.join(args.output_dir, f'best.pt')
-                safe_args = _sanitize_args_for_save(args)
-                torch.save({'model': model.state_dict(), 'args': safe_args, 'metrics': metrics}, ckpt)
+                
+                # DDP: Only save on main process
+                if is_main_process:
+                    ckpt = os.path.join(args.output_dir, f'best.pt')
+                    safe_args = _sanitize_args_for_save(args)
+                    # DDP: Extract model.module if wrapped
+                    model_to_save = model.module if args.ddp else model
+                    torch.save({'model': model_to_save.state_dict(), 'args': safe_args, 'metrics': metrics}, ckpt)
 
-                print('Saved', ckpt)
-                if args.wandb:
-                    wandb.save(ckpt)
-                    art = wandb.Artifact('longmatrix-best', type='model')
-                    art.add_file(ckpt)
-                    wandb.log_artifact(art)
+                    print('Saved', ckpt)
+                    if args.wandb:
+                        wandb.save(ckpt)
+                        art = wandb.Artifact('longmatrix-best', type='model')
+                        art.add_file(ckpt)
+                        wandb.log_artifact(art)
             else:
                 patience_left -= 1
-                print(f'[early-stop] no improvement. patience_left={patience_left}')
+                if is_main_process:
+                    print(f'[early-stop] no improvement. patience_left={patience_left}')
                 if patience_left <= 0:
-                    print('[early-stop] stopping training')
+                    if is_main_process:
+                        print('[early-stop] stopping training')
                     break
 
-        ckpt = os.path.join(args.output_dir, f'epoch{epoch}.pt')
-        safe_args = _sanitize_args_for_save(args)
-        torch.save({'model': model.state_dict(), 'args': safe_args}, ckpt)
+        # DDP: Only save on main process
+        if is_main_process:
+            ckpt = os.path.join(args.output_dir, f'epoch{epoch}.pt')
+            safe_args = _sanitize_args_for_save(args)
+            # DDP: Extract model.module if wrapped
+            model_to_save = model.module if args.ddp else model
+            torch.save({'model': model_to_save.state_dict(), 'args': safe_args}, ckpt)
 
-        print('Saved', ckpt)
-        if args.wandb:
-            wandb.save(ckpt)
+            print('Saved', ckpt)
+            if args.wandb:
+                wandb.save(ckpt)
 
     if args.export_after_train:
         src = args.export_from
@@ -1033,8 +1148,17 @@ def main():
                         parts = line.rstrip('\n').split('\t')
                         if parts and parts[0].strip():
                             texts.append(parts[0].strip())
-        print(f'[export] texts={len(texts):,}')
-        export_index(model, tokenizer, device, texts, export_dir, args.max_len, args.faiss_hnsw_m, args.faiss_hnsw_efc, args.faiss_search_efs, args.export_demo_query, args.export_demo_topk)
+        if is_main_process:
+            print(f'[export] texts={len(texts):,}')
+        
+        # DDP: Extract model.module if wrapped
+        model_to_export = model.module if args.ddp else model
+        if is_main_process:
+            export_index(model_to_export, tokenizer, device, texts, export_dir, args.max_len, args.faiss_hnsw_m, args.faiss_hnsw_efc, args.faiss_search_efs, args.export_demo_query, args.export_demo_topk)
+
+    # DDP: Cleanup
+    if args.ddp:
+        cleanup_distributed()
 
 if __name__ == '__main__':
     main()
