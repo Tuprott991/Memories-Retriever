@@ -1,7 +1,11 @@
-import os, sys, math, json, random, argparse, time, gc
+import os, sys, math, json, random, argparse, time, gc, signal
 from dataclasses import dataclass
 from typing import List, Tuple, Dict, Optional
 from datetime import timedelta
+
+# Enable Python fault handler for better crash debugging
+import faulthandler
+faulthandler.enable()
 
 import torch
 import torch.nn as nn
@@ -1085,15 +1089,26 @@ def main():
         
         # DDP initialization will handle synchronization internally
         print(f'[Rank {rank}] Wrapping model with DDP (no manual barrier)...', flush=True)
+        sys.stdout.flush()
+        sys.stderr.flush()
+        
         from torch.nn.parallel import DistributedDataParallel as DDP
         try:
+            print(f'[Rank {rank}] Creating DDP wrapper (device_ids=[{args.local_rank}])...', flush=True)
             model = DDP(model, device_ids=[args.local_rank], output_device=args.local_rank,
                         find_unused_parameters=False, broadcast_buffers=True)
             print(f'[Rank {rank}] Model wrapped with DDP successfully', flush=True)
-        except Exception as e:
-            print(f'[Rank {rank}] ERROR wrapping model with DDP: {e}', file=sys.stderr, flush=True)
+        except RuntimeError as e:
+            print(f'[Rank {rank}] RuntimeError wrapping model with DDP: {e}', file=sys.stderr, flush=True)
             import traceback
             traceback.print_exc()
+            sys.stderr.flush()
+            raise
+        except Exception as e:
+            print(f'[Rank {rank}] ERROR wrapping model with DDP: {type(e).__name__}: {e}', file=sys.stderr, flush=True)
+            import traceback
+            traceback.print_exc()
+            sys.stderr.flush()
             raise
         
         if is_main_process:

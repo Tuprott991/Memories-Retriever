@@ -70,9 +70,12 @@ def main():
     print("Starting training...")
     print()
     
-    # Set environment variable for better error messages
+    # Set environment variables for better error messages and debugging
     env = os.environ.copy()
     env['TORCH_DISTRIBUTED_DEBUG'] = 'DETAIL'
+    env['TORCH_SHOW_CPP_STACKTRACES'] = '1'
+    env['NCCL_DEBUG'] = 'INFO'
+    env['PYTHONFAULTHANDLER'] = '1'
     
     # Execute
     try:
