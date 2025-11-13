@@ -57,6 +57,15 @@ def setup_distributed(args):
     if args.local_rank == -1:
         args.local_rank = int(os.environ.get('LOCAL_RANK', 0))
     
+    # CRITICAL: Set device BEFORE initializing process group
+    # This tells NCCL which GPU this process should use
+    torch.cuda.set_device(args.local_rank)
+    
+    # Force CUDA context creation on this device
+    # This ensures NCCL knows which GPU to use
+    torch.cuda.synchronize(args.local_rank)
+    _ = torch.tensor([1.0], device=f'cuda:{args.local_rank}')
+    
     # Set longer timeout for slow operations (default is 30 minutes)
     timeout_minutes = 60
     timeout = timedelta(minutes=timeout_minutes)
@@ -67,9 +76,6 @@ def setup_distributed(args):
     
     rank = dist.get_rank()
     world_size = dist.get_world_size()
-    
-    # Set device for this process
-    torch.cuda.set_device(args.local_rank)
     
     is_main = (rank == 0)
     
