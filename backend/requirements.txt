@@ -1,0 +1,56 @@
+# FastAPI Framework
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+python-multipart==0.0.12
+pydantic==2.9.2
+pydantic-settings==2.5.2
+
+# Google Cloud & Vertex AI
+google-cloud-aiplatform==1.70.0
+google-cloud-storage==2.18.2
+google-auth==2.35.0
+google-generativeai==0.8.3
+
+# Database & ORM
+sqlalchemy==2.0.35
+alembic==1.13.3
+asyncpg==0.29.0
+psycopg2-binary==2.9.9
+
+# Vector DB & Embeddings
+sentence-transformers==3.2.0
+faiss-cpu==1.9.0
+torch>=2.0.0
+transformers==4.45.2
+
+# ZEP & Graphiti for Memory Graph
+zep-python==2.0.0rc6
+graphiti-core==0.3.6
+neo4j==5.25.0
+
+# Redis for caching
+redis==5.2.0
+hiredis==3.0.0
+
+# Media Processing
+pillow==11.0.0
+opencv-python==4.10.0.84
+moviepy==1.0.3
+librosa==0.10.2.post1
+
+# Face Detection
+face-recognition==1.3.0
+dlib==19.24.6
+
+# Utilities
+python-dotenv==1.0.1
+httpx==0.27.2
+aiofiles==24.1.0
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+tenacity==9.0.0
+loguru==0.7.2
+
+# LongMatrix Integration
+pyyaml==6.0.2
+wandb==0.18.5
