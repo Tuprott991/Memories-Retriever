@@ -80,20 +80,23 @@ def main():
     env = os.environ.copy()
     env['TORCH_DISTRIBUTED_DEBUG'] = 'DETAIL'
     env['TORCH_SHOW_CPP_STACKTRACES'] = '1'
-    env['NCCL_DEBUG'] = 'WARN'  # Changed from INFO to WARN to reduce noise
+    env['NCCL_DEBUG'] = 'WARN'
     env['PYTHONFAULTHANDLER'] = '1'
     
-    # CRITICAL: NCCL configuration for single-node multi-GPU
-    # Force NCCL to use local communication only (no network)
-    env['NCCL_P2P_LEVEL'] = 'NVL'  # Use NVLink if available, otherwise PCIe
-    env['NCCL_SHM_DISABLE'] = '0'   # Enable shared memory
-    env['NCCL_IB_DISABLE'] = '1'    # Disable InfiniBand (not available on GCP)
-    env['NCCL_SOCKET_IFNAME'] = 'lo'  # Use loopback for any socket communication
-    
-    # CRITICAL: Unset TORCH_NCCL_ASYNC_ERROR_HANDLING as recommended by NCCL
-    # The GCP environment expects this to be unset
-    if 'TORCH_NCCL_ASYNC_ERROR_HANDLING' in env:
-        del env['TORCH_NCCL_ASYNC_ERROR_HANDLING']
+    # CRITICAL: GCP's NCCL shim requires all NCCL config vars to be UNSET
+    # Remove any NCCL configuration variables that might be set
+    nccl_vars_to_remove = [
+        'TORCH_NCCL_ASYNC_ERROR_HANDLING',
+        'NCCL_P2P_LEVEL',
+        'NCCL_SHM_DISABLE', 
+        'NCCL_IB_DISABLE',
+        'NCCL_SOCKET_IFNAME',
+        'NCCL_NET_GDR_LEVEL',
+        'NCCL_P2P_DISABLE',
+    ]
+    for var in nccl_vars_to_remove:
+        if var in env:
+            del env[var]
     
     # Execute
     try:
