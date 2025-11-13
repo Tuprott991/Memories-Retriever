@@ -58,13 +58,8 @@ def setup_distributed(args):
         args.local_rank = int(os.environ.get('LOCAL_RANK', 0))
     
     # CRITICAL: Set device BEFORE initializing process group
-    # This tells NCCL which GPU this process should use
+    # This tells PyTorch which GPU this process should use
     torch.cuda.set_device(args.local_rank)
-    
-    # Force CUDA context creation on this device
-    # This ensures NCCL knows which GPU to use
-    torch.cuda.synchronize(args.local_rank)
-    _ = torch.tensor([1.0], device=f'cuda:{args.local_rank}')
     
     # Set longer timeout for slow operations (default is 30 minutes)
     timeout_minutes = 60
@@ -1088,12 +1083,8 @@ def main():
             mem_reserved = torch.cuda.memory_reserved(args.local_rank) / 1024**3
             print(f'[Rank {rank}] GPU {args.local_rank} memory: {mem_allocated:.2f}GB allocated, {mem_reserved:.2f}GB reserved', flush=True)
         
-        # Ensure all ranks reach this point before DDP wrapping
-        print(f'[Rank {rank}] Waiting at pre-DDP barrier...', flush=True)
-        dist.barrier()
-        print(f'[Rank {rank}] Passed pre-DDP barrier', flush=True)
-        
-        print(f'[Rank {rank}] Wrapping model with DDP...', flush=True)
+        # DDP initialization will handle synchronization internally
+        print(f'[Rank {rank}] Wrapping model with DDP (no manual barrier)...', flush=True)
         from torch.nn.parallel import DistributedDataParallel as DDP
         try:
             model = DDP(model, device_ids=[args.local_rank], output_device=args.local_rank,
