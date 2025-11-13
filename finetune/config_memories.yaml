@@ -33,7 +33,7 @@ lambda_ortho: 0.001
 lambda_ret: 1.0
 late_interaction: true
 log_every: 50
-lr: 0.0002
+lr: 0.0005
 lr_schedule: cosine
 m_teacher: 768
 margin_lex: 0.25
@@ -49,7 +49,7 @@ seed: 42
 shuffle_before_split: true
 teacher: sentence-transformers/all-MiniLM-L6-v2
 teacher_bs: 256
-temp: 0.07
+temp: 0.05
 tokenizer: sentence-transformers/all-MiniLM-L6-v2
 topk_d: 1
 topk_q: 4
