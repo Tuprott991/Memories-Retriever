@@ -33,7 +33,7 @@ lambda_ortho: 0.001
 lambda_ret: 1.0
 late_interaction: true
 log_every: 50
-lr: 0.002
+lr: 0.2
 lr_schedule: cosine
 m_teacher: 768
 margin_lex: 0.25
