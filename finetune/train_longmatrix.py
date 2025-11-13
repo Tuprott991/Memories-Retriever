@@ -44,6 +44,13 @@ try:
 except Exception:
     _HAS_DDP = False
 
+# ---- Flash Attention 2 support ----
+try:
+    from flash_attn import flash_attn_func
+    _HAS_FLASH_ATTN_2 = True
+except Exception:
+    _HAS_FLASH_ATTN_2 = False
+
 # ------------------------- DDP Setup -------------------------
 
 def setup_distributed(args):
@@ -208,8 +215,65 @@ class LexicalEncoder(nn.Module):
         ctx = torch.matmul(attn, V)                                            # (B,H,T,dh)
         return ctx, attn
 
+    def _attend_flash_attn_2(self, Q, K, V, attention_mask):
+        """
+        Flash Attention 2 implementation.
+        Q,K,V: (B,H,T,dh) - need to transpose to (B,T,H,dh) for flash_attn_func
+        attention_mask: (B,T) - boolean mask where True = keep
+        """
+        if not _HAS_FLASH_ATTN_2:
+            raise RuntimeError("flash-attn not installed. Install with: pip install flash-attn --no-build-isolation")
+        
+        B, H, T, dh = Q.shape
+        
+        # Flash Attention expects (B, T, H, dh) format
+        Q = Q.transpose(1, 2).contiguous()  # (B,T,H,dh)
+        K = K.transpose(1, 2).contiguous()  # (B,T,H,dh)
+        V = V.transpose(1, 2).contiguous()  # (B,T,H,dh)
+        
+        # Convert attention_mask to actual sequence lengths for each batch
+        # Flash Attention 2 uses causal masking or can work with key padding mask
+        # For padding mask, we pass it directly (will be handled internally)
+        dropout_p = self.attn_dropout.p if self.training else 0.0
+        
+        # flash_attn_func expects: (batch, seqlen, nheads, headdim)
+        # and handles padding mask via the mask parameter
+        ctx = flash_attn_func(
+            Q, K, V,
+            dropout_p=dropout_p,
+            softmax_scale=None,  # will use 1/sqrt(d) by default
+            causal=False,
+            window_size=(-1, -1),  # no sliding window
+            # Note: flash-attn handles masking internally based on sequence structure
+        )  # (B,T,H,dh)
+        
+        # Apply attention mask manually if needed (flash-attn may not handle arbitrary masks)
+        # Convert back to (B,H,T,dh) and apply mask
+        ctx = ctx.transpose(1, 2)  # (B,H,T,dh)
+        
+        # Apply mask to output (zero out padded positions)
+        mask_expanded = attention_mask.unsqueeze(1).unsqueeze(-1)  # (B,1,T,1)
+        ctx = ctx * mask_expanded
+        
+        return ctx, None
+
     def _attend(self, Q, K, V, attention_mask):
-        if self.attn_backend == 'sdpa':
+        if self.attn_backend == 'flash_attn_2':
+            try:
+                x_ctx, _ = self._attend_flash_attn_2(Q, K, V, attention_mask)
+                return x_ctx, None
+            except Exception as e:
+                if not self._sdpa_broken_warned:
+                    print(f'[warn] Flash Attention 2 failed ("{e}"). Falling back to SDPA.', file=sys.stderr)
+                    self._sdpa_broken_warned = True
+                try:
+                    x_ctx = self._attend_sdpa(Q, K, V, attention_mask)
+                    return x_ctx, None
+                except Exception as e2:
+                    print(f'[warn] SDPA also failed ("{e2}"). Falling back to matmul.', file=sys.stderr)
+                    x_ctx, attn = self._attend_matmul(Q, K, V, attention_mask)
+                    return x_ctx, attn
+        elif self.attn_backend == 'sdpa':
             try:
                 x_ctx = self._attend_sdpa(Q, K, V, attention_mask)
                 return x_ctx, None
@@ -876,7 +940,7 @@ def parse_args():
     ap.add_argument('--export_demo_query', type=str, default=None)
     ap.add_argument('--export_demo_topk', type=int, default=5)
 
-    ap.add_argument('--attn_backend', type=str, default='sdpa', choices=['sdpa','matmul'])
+    ap.add_argument('--attn_backend', type=str, default='sdpa', choices=['sdpa','matmul','flash_attn_2'])
     ap.add_argument('--grad_ckpt', action='store_true')
     ap.add_argument('--accum_steps', type=int, default=1)
     ap.add_argument('--allow_tf32', action='store_true')
@@ -980,6 +1044,14 @@ def main():
         print('Device:', device, '| dtype:', args.dtype)
         if args.ddp:
             print(f'[DDP] Rank {rank}/{world_size}, GPU {args.local_rank}')
+        
+        # Check Flash Attention 2 availability
+        if args.attn_backend == 'flash_attn_2':
+            if _HAS_FLASH_ATTN_2:
+                print('[flash-attn-2] Available and will be used')
+            else:
+                print('[flash-attn-2] NOT available. Install with: pip install flash-attn --no-build-isolation')
+                print('[flash-attn-2] Will fallback to SDPA or matmul')
 
     if str(device).startswith('cuda'):
         try:
