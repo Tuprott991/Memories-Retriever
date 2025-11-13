@@ -1000,13 +1000,14 @@ def main():
         dev_rows = read_tsv(args.dev_tsv)
 
     # DDP: Only rank 0 downloads tokenizer first, others wait
-    if args.ddp and is_main_process:
-        tokenizer = AutoTokenizer.from_pretrained(args.tokenizer, use_fast=True)
     if args.ddp:
-        dist.barrier()  # Wait for rank 0 to finish downloading
-    if args.ddp and not is_main_process:
-        tokenizer = AutoTokenizer.from_pretrained(args.tokenizer, use_fast=True)
-    if not args.ddp:
+        if is_main_process:
+            tokenizer = AutoTokenizer.from_pretrained(args.tokenizer, use_fast=True)
+        # Barrier with explicit device_ids to avoid warning
+        dist.barrier(device_ids=[args.local_rank] if torch.cuda.is_available() else None)
+        if not is_main_process:
+            tokenizer = AutoTokenizer.from_pretrained(args.tokenizer, use_fast=True)
+    else:
         tokenizer = AutoTokenizer.from_pretrained(args.tokenizer, use_fast=True)
     
     ds = TripletDataset(train_rows, neg_per_sample=args.neg_per_sample)
@@ -1032,15 +1033,16 @@ def main():
             raise RuntimeError('Install sentence-transformers for distillation')
         
         # DDP: Only rank 0 downloads teacher model first, others wait
-        if args.ddp and is_main_process:
-            teacher = TeacherEncoder(args.teacher, device=device)
-            args.m_teacher = teacher.dim
         if args.ddp:
-            dist.barrier()  # Wait for rank 0 to finish downloading
-        if args.ddp and not is_main_process:
-            teacher = TeacherEncoder(args.teacher, device=device)
-            args.m_teacher = teacher.dim
-        if not args.ddp:
+            if is_main_process:
+                teacher = TeacherEncoder(args.teacher, device=device)
+                args.m_teacher = teacher.dim
+            # Barrier with explicit device_ids to avoid warning
+            dist.barrier(device_ids=[args.local_rank] if torch.cuda.is_available() else None)
+            if not is_main_process:
+                teacher = TeacherEncoder(args.teacher, device=device)
+                args.m_teacher = teacher.dim
+        else:
             teacher = TeacherEncoder(args.teacher, device=device)
             args.m_teacher = teacher.dim
         
