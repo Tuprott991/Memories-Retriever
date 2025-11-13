@@ -1001,26 +1001,10 @@ def main():
         train_rows = all_rows
         dev_rows = read_tsv(args.dev_tsv)
 
-    # DDP: Only rank 0 downloads tokenizer first, others wait
-    if args.ddp:
-        try:
-            if is_main_process:
-                print(f'[Rank {rank}] Loading tokenizer...')
-                tokenizer = AutoTokenizer.from_pretrained(args.tokenizer, use_fast=True)
-                print(f'[Rank {rank}] Tokenizer loaded, waiting at barrier...')
-            # Barrier: use the already-set device for this process
-            dist.barrier(device_ids=[args.local_rank])
-            if not is_main_process:
-                print(f'[Rank {rank}] Loading tokenizer after barrier...')
-                tokenizer = AutoTokenizer.from_pretrained(args.tokenizer, use_fast=True)
-                print(f'[Rank {rank}] Tokenizer loaded successfully')
-        except Exception as e:
-            print(f'[Rank {rank}] ERROR during tokenizer loading: {e}', file=sys.stderr)
-            import traceback
-            traceback.print_exc()
-            raise
-    else:
-        tokenizer = AutoTokenizer.from_pretrained(args.tokenizer, use_fast=True)
+    # Load tokenizer - in DDP mode, all ranks load (transformers handles file locking)
+    print(f'[Rank {rank}] Loading tokenizer...', flush=True) if args.ddp else None
+    tokenizer = AutoTokenizer.from_pretrained(args.tokenizer, use_fast=True)
+    print(f'[Rank {rank}] Tokenizer loaded', flush=True) if args.ddp else None
     
     ds = TripletDataset(train_rows, neg_per_sample=args.neg_per_sample)
     collate = Collator(tokenizer, args.max_len)
@@ -1044,19 +1028,11 @@ def main():
         if not _HAS_ST:
             raise RuntimeError('Install sentence-transformers for distillation')
         
-        # DDP: Only rank 0 downloads teacher model first, others wait
-        if args.ddp:
-            if is_main_process:
-                teacher = TeacherEncoder(args.teacher, device=device)
-                args.m_teacher = teacher.dim
-            # Barrier: use the already-set device for this process
-            dist.barrier(device_ids=[args.local_rank])
-            if not is_main_process:
-                teacher = TeacherEncoder(args.teacher, device=device)
-                args.m_teacher = teacher.dim
-        else:
-            teacher = TeacherEncoder(args.teacher, device=device)
-            args.m_teacher = teacher.dim
+        # Load teacher model (sentence-transformers handles caching)
+        print(f'[Rank {rank}] Loading teacher model...', flush=True) if args.ddp else None
+        teacher = TeacherEncoder(args.teacher, device=device)
+        args.m_teacher = teacher.dim
+        print(f'[Rank {rank}] Teacher model loaded', flush=True) if args.ddp else None
         
         if is_main_process:
             print('Teacher dim:', args.m_teacher)
