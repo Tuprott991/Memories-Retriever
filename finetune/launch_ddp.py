@@ -45,7 +45,11 @@ def main():
     print(f"  Master port: {args.master_port}")
     print()
     
-    # Build torchrun command
+    # Create log directory for error tracking
+    log_dir = os.path.join(os.path.dirname(args.script) or '.', 'ddp_logs')
+    os.makedirs(log_dir, exist_ok=True)
+    
+    # Build torchrun command with error logging
     cmd = [
         sys.executable, '-m', 'torch.distributed.run',
         '--standalone',
@@ -53,6 +57,8 @@ def main():
         f'--nproc_per_node={args.num_gpus}',
         f'--master_addr={args.master_addr}',
         f'--master_port={args.master_port}',
+        f'--log_dir={log_dir}',  # Enable error file logging
+        '--redirects=3',         # Redirect stdout/stderr to files
         args.script,
         '--config', args.config,
         '--ddp'
