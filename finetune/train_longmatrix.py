@@ -999,7 +999,16 @@ def main():
         train_rows = all_rows
         dev_rows = read_tsv(args.dev_tsv)
 
-    tokenizer = AutoTokenizer.from_pretrained(args.tokenizer, use_fast=True)
+    # DDP: Only rank 0 downloads tokenizer first, others wait
+    if args.ddp and is_main_process:
+        tokenizer = AutoTokenizer.from_pretrained(args.tokenizer, use_fast=True)
+    if args.ddp:
+        dist.barrier()  # Wait for rank 0 to finish downloading
+    if args.ddp and not is_main_process:
+        tokenizer = AutoTokenizer.from_pretrained(args.tokenizer, use_fast=True)
+    if not args.ddp:
+        tokenizer = AutoTokenizer.from_pretrained(args.tokenizer, use_fast=True)
+    
     ds = TripletDataset(train_rows, neg_per_sample=args.neg_per_sample)
     collate = Collator(tokenizer, args.max_len)
     
@@ -1021,9 +1030,22 @@ def main():
     if args.lambda_distill > 0.0:
         if not _HAS_ST:
             raise RuntimeError('Install sentence-transformers for distillation')
-        teacher = TeacherEncoder(args.teacher, device=device)
-        args.m_teacher = teacher.dim
-        print('Teacher dim:', args.m_teacher)
+        
+        # DDP: Only rank 0 downloads teacher model first, others wait
+        if args.ddp and is_main_process:
+            teacher = TeacherEncoder(args.teacher, device=device)
+            args.m_teacher = teacher.dim
+        if args.ddp:
+            dist.barrier()  # Wait for rank 0 to finish downloading
+        if args.ddp and not is_main_process:
+            teacher = TeacherEncoder(args.teacher, device=device)
+            args.m_teacher = teacher.dim
+        if not args.ddp:
+            teacher = TeacherEncoder(args.teacher, device=device)
+            args.m_teacher = teacher.dim
+        
+        if is_main_process:
+            print('Teacher dim:', args.m_teacher)
 
     model = LongMatrixModel(
         tokenizer,
