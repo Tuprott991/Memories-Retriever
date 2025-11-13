@@ -1,7 +1,7 @@
 accum_steps: 8
 allow_tf32: true
-attn_backend: sdpa
-batch_size: 256
+attn_backend: flash_attn_2
+batch_size: 768
 
 # ---- MODEL SIZE (LARGE VERSION) ----
 d_lex: 384          # was 192
