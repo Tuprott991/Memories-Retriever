@@ -13,6 +13,10 @@ export default {
       },
     },
     extend: {
+      fontFamily: {
+        sans: ['Nunito', 'Open Sans', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
+        display: ['Nunito', 'sans-serif'],
+      },
       colors: {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
@@ -92,11 +96,20 @@ export default {
             opacity: "0.7",
           },
         },
+        scan: {
+          "0%": {
+            transform: "translateY(0)",
+          },
+          "100%": {
+            transform: "translateY(100px)",
+          },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
         "glow-pulse": "glow-pulse 2s ease-in-out infinite",
+        scan: "scan 3s ease-in-out infinite",
       },
       backgroundImage: {
         "gradient-memory": "linear-gradient(135deg, hsl(220 20% 8%) 0%, hsl(230 30% 15%) 50%, hsl(200 30% 12%) 100%)",

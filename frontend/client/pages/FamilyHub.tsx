@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { Upload, Music, FileText, Image, Video, Mic, Square, X, Trash2, Edit2 } from "lucide-react";
 import * as faceapi from "@vladmandic/face-api";
+import BrainLogo from "../components/BrainLogo";
 
 interface DetectedFace {
   id: string;
@@ -50,6 +51,7 @@ export default function FamilyHub() {
   const [editFormData, setEditFormData] = useState({ title: "", description: "" });
   const [currentPreview, setCurrentPreview] = useState("");
   const [hoveredFaceId, setHoveredFaceId] = useState<string | null>(null);
+  const [saveNotification, setSaveNotification] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -83,7 +85,7 @@ export default function FamilyHub() {
 
   const detectFacesInImage = async (imageUrl: string) => {
     try {
-      const img = new Image();
+      const img = document.createElement('img');
       img.src = imageUrl;
       img.onload = async () => {
         const canvas = canvasRef.current;
@@ -94,9 +96,9 @@ export default function FamilyHub() {
         const ctx = canvas.getContext("2d");
         if (ctx) ctx.drawImage(img, 0, 0);
 
-        const detections = await faceapi.detectAllTinyFaces(canvas, {
+        const detections = await faceapi.detectAllFaces(canvas, new faceapi.TinyFaceDetectorOptions({
           scoreThreshold: 0.5,
-        });
+        }));
 
         const faces: DetectedFace[] = detections.map((det, idx) => ({
           id: `face-${idx}`,
@@ -116,7 +118,7 @@ export default function FamilyHub() {
   };
 
   const drawFaceBoxes = (imageUrl: string, faces: DetectedFace[]) => {
-    const img = new Image();
+    const img = document.createElement('img');
     img.src = imageUrl;
     img.onload = () => {
       const canvas = previewCanvasRef.current;
@@ -127,16 +129,66 @@ export default function FamilyHub() {
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
 
+      // Draw the image
       ctx.drawImage(img, 0, 0);
-      ctx.strokeStyle = "#b366ff";
-      ctx.lineWidth = 2;
-      ctx.font = "14px Arial";
-      ctx.fillStyle = "#b366ff";
 
+      // Draw face boxes with different styles based on state
       faces.forEach((face) => {
+        const isHovered = hoveredFaceId === face.id;
+        const isSelected = selectedFaceId === face.id;
+
+        // Set box style
+        if (isSelected) {
+          ctx.strokeStyle = "#9333ea"; // Darker purple for selected
+          ctx.lineWidth = 4;
+          ctx.shadowColor = "#9333ea";
+          ctx.shadowBlur = 10;
+        } else if (isHovered) {
+          ctx.strokeStyle = "#c084fc"; // Lighter purple for hover
+          ctx.lineWidth = 3;
+          ctx.shadowColor = "#c084fc";
+          ctx.shadowBlur = 8;
+        } else {
+          ctx.strokeStyle = "#b366ff"; // Default purple
+          ctx.lineWidth = 2;
+          ctx.shadowColor = "transparent";
+          ctx.shadowBlur = 0;
+        }
+
+        // Draw the rectangle
         ctx.strokeRect(face.x, face.y, face.width, face.height);
+
+        // Reset shadow for text
+        ctx.shadowColor = "transparent";
+        ctx.shadowBlur = 0;
+
+        // Draw name label if exists
         if (face.name) {
-          ctx.fillText(face.name, face.x, face.y - 5);
+          ctx.font = "bold 16px Arial";
+          ctx.fillStyle = "#1a1a2e";
+          const textWidth = ctx.measureText(face.name).width;
+          const padding = 8;
+          
+          // Draw background for text
+          ctx.fillRect(face.x, face.y - 28, textWidth + padding * 2, 24);
+          
+          // Draw text
+          ctx.fillStyle = "#b366ff";
+          ctx.fillText(face.name, face.x + padding, face.y - 10);
+        } else if (isHovered || isSelected) {
+          // Show "Click to add info" prompt when hovering or selected
+          ctx.font = "12px Arial";
+          ctx.fillStyle = "#1a1a2e";
+          const promptText = isSelected ? "Adding info..." : "Click to add info";
+          const textWidth = ctx.measureText(promptText).width;
+          const padding = 6;
+          
+          // Draw background
+          ctx.fillRect(face.x, face.y - 22, textWidth + padding * 2, 18);
+          
+          // Draw text
+          ctx.fillStyle = isSelected ? "#9333ea" : "#c084fc";
+          ctx.fillText(promptText, face.x + padding, face.y - 8);
         }
       });
     };
@@ -323,7 +375,7 @@ export default function FamilyHub() {
     if (activeTab === "photos" && currentPreview && detectedFaces.length > 0) {
       drawFaceBoxes(currentPreview, detectedFaces);
     }
-  }, [detectedFaces, hoveredFaceId]);
+  }, [detectedFaces, hoveredFaceId, selectedFaceId, currentPreview]);
 
   return (
     <div className="min-h-screen bg-gradient-memory flex flex-col">
@@ -331,14 +383,10 @@ export default function FamilyHub() {
       <header className="border-b border-purple/20 px-6 py-6">
         <div className="flex items-center justify-between max-w-7xl mx-auto">
           <Link to="/" className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full border-2 border-purple bg-purple/10 flex items-center justify-center">
-              <svg className="w-6 h-6 text-purple" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm3.5-9c.83 0 1.5-.67 1.5-1.5S16.33 8 15.5 8 14 8.67 14 9.5s.67 1.5 1.5 1.5zm-7 0c.83 0 1.5-.67 1.5-1.5S9.33 8 8.5 8 7 8.67 7 9.5 7.67 11 8.5 11zm3.5 6.5c2.33 0 4.31-1.46 5.11-3.5H6.89c.8 2.04 2.78 3.5 5.11 3.5z" />
-              </svg>
-            </div>
-            <span className="text-white font-medium text-lg">Memory Palace</span>
+            <BrainLogo size="sm" className="scale-110" />
+            <span className="text-white font-medium text-lg">Memory Retriever x LongMatrix</span>
           </Link>
-          <h1 className="text-2xl font-light text-white">Family Hub</h1>
+          <h1 className="text-2xl font-light text-white">Family Archive</h1>
           <div className="w-10"></div>
         </div>
       </header>
@@ -352,10 +400,14 @@ export default function FamilyHub() {
             { icon: Video, label: "Videos", count: stats.videos, color: "teal" },
             { icon: Music, label: "Voice", count: stats.voice, color: "purple" },
             { icon: FileText, label: "Notes", count: stats.notes, color: "magenta" },
-          ].map((stat) => {
+          ].map((stat, idx) => {
             const Icon = stat.icon;
             return (
-              <div key={stat.label} className="p-4 rounded-lg border border-purple/30 bg-purple/5 backdrop-blur-sm">
+              <div 
+                key={stat.label} 
+                className="p-4 rounded-lg border border-purple/30 bg-purple/5 backdrop-blur-sm hover:bg-purple/10 hover:border-purple/50 transition-all transform hover:scale-105 animate-scale-in"
+                style={{ animationDelay: `${idx * 0.1}s`, animationFillMode: 'both' }}
+              >
                 <div className="flex items-center gap-3 mb-2">
                   <Icon className={`w-5 h-5 text-${stat.color}`} />
                   <span className="text-gray-400 text-sm">{stat.label}</span>
@@ -523,17 +575,53 @@ export default function FamilyHub() {
 
             {/* Image Preview with Face Detection Overlay */}
             {(activeTab === "photos" || activeTab === "videos") && currentPreview && (
-              <div className="flex justify-center mb-6 relative">
+              <>
+                {activeTab === "photos" && detectedFaces.length > 0 && (
+                  <div className="mb-3 p-3 bg-purple/20 border border-purple/30 rounded-lg">
+                    <p className="text-white text-sm font-medium flex items-center gap-2">
+                      <span className="w-2 h-2 bg-purple rounded-full animate-pulse"></span>
+                      {detectedFaces.length} face{detectedFaces.length !== 1 ? 's' : ''} detected - Click on faces in the image or cards below to add person info
+                    </p>
+                  </div>
+                )}
+                <div className="flex justify-center mb-6 relative">
                 {activeTab === "photos" && detectedFaces.length > 0 ? (
                   <canvas
                     ref={previewCanvasRef}
                     className="max-w-full h-auto rounded-lg max-h-96 cursor-pointer"
-                    onClick={(e) => {
-                      const rect = (e.target as HTMLCanvasElement).getBoundingClientRect();
-                      const x = e.clientX - rect.left;
-                      const y = e.clientY - rect.top;
+                    onMouseMove={(e) => {
+                      const canvas = e.currentTarget;
+                      const rect = canvas.getBoundingClientRect();
+                      const scaleX = canvas.width / rect.width;
+                      const scaleY = canvas.height / rect.height;
+                      const x = (e.clientX - rect.left) * scaleX;
+                      const y = (e.clientY - rect.top) * scaleY;
 
-                      detectedFaces.forEach((face) => {
+                      let foundFace = false;
+                      for (const face of detectedFaces) {
+                        if (
+                          x >= face.x &&
+                          x <= face.x + face.width &&
+                          y >= face.y &&
+                          y <= face.y + face.height
+                        ) {
+                          setHoveredFaceId(face.id);
+                          foundFace = true;
+                          break;
+                        }
+                      }
+                      if (!foundFace) setHoveredFaceId(null);
+                    }}
+                    onMouseLeave={() => setHoveredFaceId(null)}
+                    onClick={(e) => {
+                      const canvas = e.currentTarget;
+                      const rect = canvas.getBoundingClientRect();
+                      const scaleX = canvas.width / rect.width;
+                      const scaleY = canvas.height / rect.height;
+                      const x = (e.clientX - rect.left) * scaleX;
+                      const y = (e.clientY - rect.top) * scaleY;
+
+                      for (const face of detectedFaces) {
                         if (
                           x >= face.x &&
                           x <= face.x + face.width &&
@@ -541,8 +629,10 @@ export default function FamilyHub() {
                           y <= face.y + face.height
                         ) {
                           setSelectedFaceId(face.id);
+                          setFaceAnnotation({ name: face.name || "", description: face.description || "" });
+                          break;
                         }
-                      });
+                      }
                     }}
                   />
                 ) : (
@@ -553,12 +643,30 @@ export default function FamilyHub() {
                   />
                 )}
               </div>
+              </>
+            )}
+
+            {/* Success Notification */}
+            {saveNotification && (
+              <div className="mb-4 p-3 bg-green-500/20 border border-green-500/40 rounded-lg animate-fade-in">
+                <p className="text-green-400 text-sm flex items-center gap-2">
+                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                  </svg>
+                  {saveNotification}
+                </p>
+              </div>
             )}
 
             {/* Face Detection Annotations (Photos only) */}
             {activeTab === "photos" && detectedFaces.length > 0 && (
               <div className="mt-6 space-y-4">
-                <h3 className="text-white font-medium">Detected Faces ({detectedFaces.length})</h3>
+                <div className="flex items-center justify-between">
+                  <h3 className="text-white font-medium">Detected Faces ({detectedFaces.length})</h3>
+                  <span className="text-xs text-gray-400">
+                    {detectedFaces.filter(f => f.name).length} annotated
+                  </span>
+                </div>
                 <p className="text-gray-400 text-sm">Click on a face in the image or below to annotate</p>
                 <div className="space-y-2 max-h-48 overflow-y-auto">
                   {detectedFaces.map((face) => (
@@ -566,7 +674,13 @@ export default function FamilyHub() {
                       key={face.id}
                       onMouseEnter={() => setHoveredFaceId(face.id)}
                       onMouseLeave={() => setHoveredFaceId(null)}
-                      onClick={() => setSelectedFaceId(face.id)}
+                      onClick={(e) => {
+                        // Only open if not already selected
+                        if (selectedFaceId !== face.id) {
+                          setSelectedFaceId(face.id);
+                          setFaceAnnotation({ name: face.name || "", description: face.description || "" });
+                        }
+                      }}
                       className={`p-3 rounded-lg border-2 cursor-pointer transition-colors ${
                         selectedFaceId === face.id
                           ? "border-purple bg-purple/30"
@@ -576,31 +690,52 @@ export default function FamilyHub() {
                       }`}
                     >
                       {selectedFaceId === face.id ? (
-                        <div className="space-y-2">
+                        <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
                           <input
                             type="text"
                             placeholder="Person name"
                             value={faceAnnotation.name}
                             onChange={(e) => setFaceAnnotation((prev) => ({ ...prev, name: e.target.value }))}
+                            onClick={(e) => e.stopPropagation()}
                             className="w-full bg-purple/20 border border-purple/30 rounded px-2 py-1 text-white text-sm placeholder-gray-500 focus:outline-none"
+                            autoFocus
                           />
                           <textarea
-                            placeholder="Description"
+                            placeholder="Description (optional)"
                             value={faceAnnotation.description}
                             onChange={(e) => setFaceAnnotation((prev) => ({ ...prev, description: e.target.value }))}
+                            onClick={(e) => e.stopPropagation()}
                             rows={2}
                             className="w-full bg-purple/20 border border-purple/30 rounded px-2 py-1 text-white text-sm placeholder-gray-500 focus:outline-none resize-none"
                           />
                           <div className="flex gap-2 text-xs">
                             <button
-                              onClick={() => {
-                                setDetectedFaces((prev) =>
-                                  prev.map((f) =>
-                                    f.id === face.id
-                                      ? { ...f, name: faceAnnotation.name, description: faceAnnotation.description }
-                                      : f
-                                  )
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                // Validate that at least a name is provided
+                                if (!faceAnnotation.name.trim()) {
+                                  setSaveNotification("Please enter a name");
+                                  setTimeout(() => setSaveNotification(null), 2000);
+                                  return;
+                                }
+                                
+                                // Update the detected faces with new annotation
+                                const updatedFaces = detectedFaces.map((f) =>
+                                  f.id === face.id
+                                    ? { ...f, name: faceAnnotation.name, description: faceAnnotation.description }
+                                    : f
                                 );
+                                setDetectedFaces(updatedFaces);
+                                
+                                // Redraw the canvas with updated face data
+                                if (currentPreview) {
+                                  drawFaceBoxes(currentPreview, updatedFaces);
+                                }
+                                
+                                // Show success notification
+                                setSaveNotification(`Saved annotation for ${faceAnnotation.name}`);
+                                setTimeout(() => setSaveNotification(null), 2000);
+                                
                                 setSelectedFaceId(null);
                                 setFaceAnnotation({ name: "", description: "" });
                               }}
@@ -609,7 +744,8 @@ export default function FamilyHub() {
                               Save
                             </button>
                             <button
-                              onClick={() => {
+                              onClick={(e) => {
+                                e.stopPropagation();
                                 setSelectedFaceId(null);
                                 setFaceAnnotation({ name: "", description: "" });
                               }}
@@ -676,12 +812,13 @@ export default function FamilyHub() {
           <div className="bg-purple/10 border border-purple/30 rounded-lg p-6">
             <h3 className="text-xl font-light text-white mb-6">Recent Memories</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {memoryMetadata.map((memory) => {
+              {memoryMetadata.map((memory, idx) => {
                 const fileData = uploadedFiles.get(memory.id);
                 return (
                   <div
                     key={memory.id}
-                    className="relative group bg-purple/20 rounded-lg border border-purple/20 hover:border-purple/40 overflow-hidden transition-colors"
+                    className="relative group bg-purple/20 rounded-lg border border-purple/20 hover:border-purple/40 hover:shadow-lg hover:shadow-purple/20 overflow-hidden transition-all transform hover:scale-105 animate-scale-in"
+                    style={{ animationDelay: `${idx * 0.05}s`, animationFillMode: 'both' }}
                   >
                     {/* Thumbnail */}
                     {(memory.type === "photo" || memory.type === "video") && fileData?.preview && (
