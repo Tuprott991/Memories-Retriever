@@ -44,7 +44,7 @@ neg_per_sample: 7
 num_workers: 2
 output_dir: runs/memories_retriever
 rank: 256
-resume: null
+resume: finetune/longmatrix.pt
 seed: 42
 shuffle_before_split: true
 teacher: sentence-transformers/all-MiniLM-L6-v2
