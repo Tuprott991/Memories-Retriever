@@ -77,6 +77,11 @@ def main():
     env['NCCL_DEBUG'] = 'INFO'
     env['PYTHONFAULTHANDLER'] = '1'
     
+    # CRITICAL: Unset TORCH_NCCL_ASYNC_ERROR_HANDLING as recommended by NCCL
+    # The GCP environment expects this to be unset
+    if 'TORCH_NCCL_ASYNC_ERROR_HANDLING' in env:
+        del env['TORCH_NCCL_ASYNC_ERROR_HANDLING']
+    
     # Execute
     try:
         result = subprocess.run(cmd, env=env)
