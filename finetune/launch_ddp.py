@@ -83,6 +83,13 @@ def main():
     env['NCCL_DEBUG'] = 'WARN'  # Changed from INFO to WARN to reduce noise
     env['PYTHONFAULTHANDLER'] = '1'
     
+    # CRITICAL: NCCL configuration for single-node multi-GPU
+    # Force NCCL to use local communication only (no network)
+    env['NCCL_P2P_LEVEL'] = 'NVL'  # Use NVLink if available, otherwise PCIe
+    env['NCCL_SHM_DISABLE'] = '0'   # Enable shared memory
+    env['NCCL_IB_DISABLE'] = '1'    # Disable InfiniBand (not available on GCP)
+    env['NCCL_SOCKET_IFNAME'] = 'lo'  # Use loopback for any socket communication
+    
     # CRITICAL: Unset TORCH_NCCL_ASYNC_ERROR_HANDLING as recommended by NCCL
     # The GCP environment expects this to be unset
     if 'TORCH_NCCL_ASYNC_ERROR_HANDLING' in env:
