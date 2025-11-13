@@ -1107,15 +1107,25 @@ def main():
                 torch.cuda.synchronize(args.local_rank)
                 print(f'[Rank {rank}] CUDA synchronized successfully', flush=True)
             
+            # Test NCCL communication with a simple barrier before DDP
+            print(f'[Rank {rank}] Testing NCCL with barrier...', flush=True)
+            try:
+                dist.barrier()
+                print(f'[Rank {rank}] NCCL barrier passed!', flush=True)
+            except Exception as e:
+                print(f'[Rank {rank}] NCCL barrier FAILED: {e}', file=sys.stderr, flush=True)
+                raise
+            
             # Use gradient_as_bucket_view for better memory efficiency
-            # static_graph=False allows dynamic graphs (more flexible)
-            print(f'[Rank {rank}] Calling DDP constructor...', flush=True)
+            # Disable parameter broadcast to avoid NCCL hang
+            print(f'[Rank {rank}] Calling DDP constructor (broadcast_buffers=False)...', flush=True)
             sys.stdout.flush()
             sys.stderr.flush()
             
             model = DDP(model, device_ids=[args.local_rank], output_device=args.local_rank,
                         find_unused_parameters=False, 
                         gradient_as_bucket_view=True,
+                        broadcast_buffers=False,  # Disable buffer broadcast
                         static_graph=False)
             
             print(f'[Rank {rank}] Model wrapped with DDP successfully!', flush=True)
