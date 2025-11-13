@@ -1,11 +1,11 @@
 accum_steps: 8
 allow_tf32: true
 attn_backend: sdpa
-batch_size: 256
+batch_size: 448
 d_lex: 192
 d_lex_emb: 512
 dev_eval_every_epochs: 0.2
-dev_eval_sample: 800
+dev_eval_sample: 400
 dev_tsv: data/processed/dev.tsv
 dtype: bf16
 early_stop_min_delta: 0.0001
@@ -33,7 +33,7 @@ lambda_ortho: 0.001
 lambda_ret: 1.0
 late_interaction: true
 log_every: 50
-lr: 0.0005
+lr: 0.005
 lr_schedule: cosine
 m_teacher: 768
 margin_lex: 0.25
