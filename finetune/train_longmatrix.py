@@ -1102,13 +1102,24 @@ def main():
             print(f'[Rank {rank}] Creating DDP wrapper (device_ids=[{args.local_rank}])...', flush=True)
             print(f'[Rank {rank}] Model parameters: {sum(p.numel() for p in model.parameters()):,}', flush=True)
             
+            # Check CUDA status before DDP
+            if torch.cuda.is_available():
+                torch.cuda.synchronize(args.local_rank)
+                print(f'[Rank {rank}] CUDA synchronized successfully', flush=True)
+            
             # Use gradient_as_bucket_view for better memory efficiency
             # static_graph=False allows dynamic graphs (more flexible)
+            print(f'[Rank {rank}] Calling DDP constructor...', flush=True)
+            sys.stdout.flush()
+            sys.stderr.flush()
+            
             model = DDP(model, device_ids=[args.local_rank], output_device=args.local_rank,
                         find_unused_parameters=False, 
                         gradient_as_bucket_view=True,
                         static_graph=False)
+            
             print(f'[Rank {rank}] Model wrapped with DDP successfully!', flush=True)
+            sys.stdout.flush()
         except RuntimeError as e:
             print(f'[Rank {rank}] RuntimeError wrapping model with DDP: {e}', file=sys.stderr, flush=True)
             import traceback
