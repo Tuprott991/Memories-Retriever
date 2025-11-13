@@ -56,10 +56,10 @@ topk_q: 4
 torch_compile: false
 train_tsv: data/processed/train.tsv
 val_ratio: 0.02
-wandb: true
-wandb_mode: online
-wandb_project: memories-retriever
-wandb_run: memories_v1
+wandb: false
+# wandb_mode: online
+# wandb_project: memories-retriever
+# wandb_run: memories_v1
 wandb_table_samples: 8
 warmup_steps: 1500
 weight_decay: 0.01
