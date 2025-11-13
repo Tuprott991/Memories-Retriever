@@ -74,7 +74,7 @@ def main():
     env = os.environ.copy()
     env['TORCH_DISTRIBUTED_DEBUG'] = 'DETAIL'
     env['TORCH_SHOW_CPP_STACKTRACES'] = '1'
-    env['NCCL_DEBUG'] = 'INFO'
+    env['NCCL_DEBUG'] = 'WARN'  # Changed from INFO to WARN to reduce noise
     env['PYTHONFAULTHANDLER'] = '1'
     
     # CRITICAL: Unset TORCH_NCCL_ASYNC_ERROR_HANDLING as recommended by NCCL
