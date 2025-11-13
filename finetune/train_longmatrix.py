@@ -1006,6 +1006,7 @@ def main():
     tokenizer = AutoTokenizer.from_pretrained(args.tokenizer, use_fast=True)
     print(f'[Rank {rank}] Tokenizer loaded', flush=True) if args.ddp else None
     
+    print(f'[Rank {rank}] Creating dataset...', flush=True) if args.ddp else None
     ds = TripletDataset(train_rows, neg_per_sample=args.neg_per_sample)
     collate = Collator(tokenizer, args.max_len)
     
@@ -1013,15 +1014,18 @@ def main():
     sampler = None
     shuffle = True
     if args.ddp:
+        print(f'[Rank {rank}] Creating DistributedSampler...', flush=True)
         from torch.utils.data.distributed import DistributedSampler
         sampler = DistributedSampler(ds, num_replicas=world_size, rank=rank, shuffle=True)
         shuffle = False  # Sampler handles shuffling
     
+    print(f'[Rank {rank}] Creating DataLoader...', flush=True) if args.ddp else None
     dl = DataLoader(ds, batch_size=args.batch_size, shuffle=shuffle, sampler=sampler,
                     num_workers=args.num_workers, pin_memory=(str(device).startswith('cuda')),
                     persistent_workers=(args.num_workers>0),
                     prefetch_factor=4,
                     collate_fn=collate)
+    print(f'[Rank {rank}] DataLoader created', flush=True) if args.ddp else None
 
     teacher = None
     if args.lambda_distill > 0.0:
@@ -1037,6 +1041,7 @@ def main():
         if is_main_process:
             print('Teacher dim:', args.m_teacher)
 
+    print(f'[Rank {rank}] Creating LongMatrixModel...', flush=True) if args.ddp else None
     model = LongMatrixModel(
         tokenizer,
         d_lex_emb=args.d_lex_emb, d_lex=args.d_lex,
@@ -1045,6 +1050,7 @@ def main():
         use_ckpt=args.grad_ckpt,
         heads=args.heads
     ).to(device)
+    print(f'[Rank {rank}] Model created and moved to device', flush=True) if args.ddp else None
 
     # torch.compile (PyTorch >= 2.3) - before DDP wrapping
     if args.torch_compile and str(device).startswith('cuda'):
@@ -1064,9 +1070,11 @@ def main():
 
     # DDP: Wrap model with DistributedDataParallel
     if args.ddp:
+        print(f'[Rank {rank}] Wrapping model with DDP...', flush=True)
         from torch.nn.parallel import DistributedDataParallel as DDP
         model = DDP(model, device_ids=[args.local_rank], output_device=args.local_rank,
                     find_unused_parameters=False)
+        print(f'[Rank {rank}] Model wrapped with DDP', flush=True)
         if is_main_process:
             print(f'[DDP] Model wrapped with DistributedDataParallel')
 
@@ -1207,4 +1215,12 @@ def main():
         cleanup_distributed()
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except Exception as e:
+        print(f'\n{"="*60}', file=sys.stderr, flush=True)
+        print(f'FATAL ERROR: {e}', file=sys.stderr, flush=True)
+        print(f'{"="*60}\n', file=sys.stderr, flush=True)
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
