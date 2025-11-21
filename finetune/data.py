@@ -70,11 +70,13 @@ _HAS_ST = True
 _HAS_FAISS = True
 try:
     from sentence_transformers import SentenceTransformer
-except Exception:
+except Exception as e:
+    print(f"[Warning] sentence-transformers import failed: {e}", file=sys.stderr)
     _HAS_ST = False
 try:
     import faiss
-except Exception:
+except Exception as e:
+    print(f"[Warning] faiss import failed: {e}", file=sys.stderr)
     _HAS_FAISS = False
 
 # Optional dep for rank-bm25 fallback
@@ -243,12 +245,19 @@ def m3_negatives_chunked(
         raise RuntimeError("Need `sentence-transformers` and `faiss-cpu` for --neg_method m3/combo")
 
     device = pick_device(device)
-    # Force safetensors to avoid torch.load vulnerability (CVE-2025-32434)
-    st = SentenceTransformer(
-        model_name, 
-        device=device,
-        model_kwargs={"use_safetensors": True}
-    )
+    # Try safetensors first (PyTorch 2.6+ requirement), fall back to pickle if not available
+    try:
+        st = SentenceTransformer(
+            model_name, 
+            device=device,
+            model_kwargs={"use_safetensors": True}
+        )
+    except (OSError, Exception) as e:
+        if "safetensors" in str(e):
+            print(f"[M3] safetensors not available, using pickle format (requires PyTorch 2.6+)")
+            st = SentenceTransformer(model_name, device=device)
+        else:
+            raise
     dim = st.get_sentence_embedding_dimension()
     print(f"[M3] device={device}, dim={dim}, bs={bs}, pool_limit={pool_limit}")
 
@@ -366,27 +375,31 @@ def bm25_negatives_fast_approximate(
     corpus_tokens = [simple_tokenize(p) for p in tqdm(positives, desc="tokenize passages")]
     bm25 = BM25Okapi(corpus_tokens)
 
-    # Step 3: Search sampled queries
-    print(f"[BM25/fast] searching {len(sample_pairs)} sampled queries...")
+    # Step 3: VECTORIZED batch search - much faster!
+    print(f"[BM25/fast] batch scoring {len(sample_pairs)} queries...")
     topK = k_neg + margin
-    query_tokens = [simple_tokenize(q) for q, _ in tqdm(sample_pairs, desc="tokenize sample queries")]
     
-    sample_results = []
-    neg_pool = set()  # Collect all negatives found
+    # Pre-tokenize all queries at once
+    query_tokens = [simple_tokenize(q) for q, _ in tqdm(sample_pairs, desc="tokenize queries")]
     
+    # Build positive lookup
     pos_to_idx = {}
     for i, p in enumerate(positives):
         if p not in pos_to_idx:
             pos_to_idx[p] = i
     
-    for (q, p), qtok in tqdm(zip(sample_pairs, query_tokens), total=len(sample_pairs), desc="BM25 search"):
+    sample_results = []
+    neg_pool = set()
+    
+    # Batch process with progress bar
+    for i, ((q, p), qtok) in enumerate(tqdm(zip(sample_pairs, query_tokens), total=len(sample_pairs), desc="BM25 scoring")):
         scores = bm25.get_scores(qtok)
         
         if topK < len(scores):
             idx = np.argpartition(scores, -topK)[-topK:]
             idx = idx[np.argsort(scores[idx])[::-1]]
         else:
-            idx = np.argsort(scores)[::-1]
+            idx = np.argsort(scores)[::-1][:topK]
         
         negs = []
         used = set()
@@ -399,7 +412,7 @@ def bm25_negatives_fast_approximate(
             if cand != p and cand not in used:
                 used.add(cand)
                 negs.append(cand)
-                neg_pool.add(cand)  # Add to global negative pool
+                neg_pool.add(cand)
             if len(negs) >= k_neg:
                 break
         
@@ -412,24 +425,23 @@ def bm25_negatives_fast_approximate(
         
         sample_results.append((q, p, negs))
     
-    # Step 4: Build final results - use BM25 results for sampled, random from neg_pool for others
+    # Step 4: Build final results
     print(f"[BM25/fast] collected {len(neg_pool)} unique negatives from BM25 search")
     neg_pool_list = list(neg_pool)
     
     triplets = [None] * len(train_pairs)
     sample_idx_set = set(sample_indices)
     
-    # Fill in sampled queries with actual BM25 results
+    # Fill in sampled queries
     for idx, (q, p, negs) in zip(sample_indices, sample_results):
         triplets[idx] = tuple([q, p] + negs)
     
-    # Fill in remaining with random from negative pool (much faster)
+    # Fill in remaining with random from negative pool
     print(f"[BM25/fast] assigning negatives to {len(train_pairs) - len(sample_pairs)} non-sampled queries...")
-    for i, (q, p) in enumerate(tqdm(train_pairs, desc="assign negatives")):
+    for i, (q, p) in enumerate(tqdm(train_pairs, desc="assign negatives", disable=len(train_pairs)==len(sample_pairs))):
         if i in sample_idx_set:
             continue
         
-        # Random selection from BM25-discovered negatives
         negs = []
         used = {p}
         attempts = 0
@@ -440,7 +452,6 @@ def bm25_negatives_fast_approximate(
                 negs.append(c)
             attempts += 1
         
-        # Fallback to positives pool if needed
         while len(negs) < k_neg:
             c = random.choice(positives)
             if c not in used:
@@ -881,7 +892,7 @@ def main():
     ap.add_argument("--bm25_b", type=float, default=0.4, help="BM25 b for Pyserini")
     ap.add_argument("--bm25_margin", type=int, default=50, help="extra candidates over k_neg when ranking (BM25)")
     ap.add_argument("--bm25_fast", action="store_true", help="Use fast approximate BM25 with sampling (10-100x speedup)")
-    ap.add_argument("--bm25_sample_queries", type=int, default=50000, help="Max queries to actually search with BM25 in fast mode")
+    ap.add_argument("--bm25_sample_queries", type=int, default=10000, help="Max queries to actually search with BM25 in fast mode (reduce for speed)")
 
     # HF dataset options
     ap.add_argument("--hf_cache", type=str, default=None)

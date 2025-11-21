@@ -1180,7 +1180,7 @@ def parse_args():
     ap.add_argument('--bm25_b', type=float, default=0.4, help='BM25 b parameter')
     ap.add_argument('--bm25_margin', type=int, default=50, help='Extra candidates over k_neg for BM25')
     ap.add_argument('--bm25_fast', action='store_true', help='Use fast approximate BM25 (10-100x speedup)')
-    ap.add_argument('--bm25_sample_queries', type=int, default=50000, help='Max queries to search in fast mode')
+    ap.add_argument('--bm25_sample_queries', type=int, default=10000, help='Max queries to search in fast mode (reduce for speed)')
     
     # Combo negative mining options
     ap.add_argument('--k_neg_bm25', type=int, default=None, help='Negatives from BM25 in combo mode')
