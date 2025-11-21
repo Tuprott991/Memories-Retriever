@@ -131,9 +131,37 @@ def load_msmarco_v2_from_hf(split: str = 'train', max_samples: Optional[int] = N
         raise RuntimeError("HuggingFace datasets not available. Install: pip install datasets")
     
     print(f"[MSMARCO] Loading {split} split from HuggingFace (streaming={streaming})...")
-    # MSMARCO v2.1 dataset
-    dataset = load_dataset('microsoft/ms_marco', 'v2.1', split=split, 
-                          cache_dir=cache_dir, streaming=streaming)
+    
+    # Try loading MSMARCO v2.1 dataset
+    try:
+        # Clear cache if corrupted
+        import datasets
+        datasets.builder.has_sufficient_disk_space = lambda *args, **kwargs: True
+        
+        # Load with trust_remote_code for newer datasets format
+        dataset = load_dataset(
+            'microsoft/ms_marco', 
+            'v2.1', 
+            split=split, 
+            cache_dir=cache_dir, 
+            streaming=streaming,
+            trust_remote_code=True
+        )
+    except Exception as e:
+        print(f"[MSMARCO] Error loading with v2.1 config: {e}")
+        print(f"[MSMARCO] Trying without config name...")
+        try:
+            dataset = load_dataset(
+                'microsoft/ms_marco',
+                split=split,
+                cache_dir=cache_dir,
+                streaming=streaming,
+                trust_remote_code=True
+            )
+        except Exception as e2:
+            print(f"[MSMARCO] Error: {e2}")
+            print(f"[MSMARCO] Please ensure the dataset is properly installed or use --data_source tsv")
+            raise
     
     pairs = []
     if streaming:
