@@ -114,6 +114,16 @@ def load_msmarco_v2_from_hf(split: str = 'train', max_samples: Optional[int] = N
                             cache_dir: Optional[str] = None, streaming: bool = False) -> List[Tuple[str, str]]:
     """Load MSMARCO v2.1 from HuggingFace.
     
+    MSMARCO v2.1 format:
+    {
+        "query": "what is a corporation?",
+        "passages": [
+            {"is_selected": 0, "passage_text": "...", "url": "..."},
+            {"is_selected": 1, "passage_text": "...", "url": "..."},  # is_selected=1 means positive
+            ...
+        ]
+    }
+    
     Returns:
         List of (query, positive_passage) pairs
     """
@@ -121,15 +131,9 @@ def load_msmarco_v2_from_hf(split: str = 'train', max_samples: Optional[int] = N
         raise RuntimeError("HuggingFace datasets not available. Install: pip install datasets")
     
     print(f"[MSMARCO] Loading {split} split from HuggingFace (streaming={streaming})...")
-    # MSMARCO v2.1 dataset identifier
-    try:
-        dataset = load_dataset('microsoft/ms_marco', 'v2.1', split=split, 
-                              cache_dir=cache_dir, streaming=streaming)
-    except Exception as e:
-        # Fallback to v1.1 if v2.1 not available
-        print(f"[MSMARCO] v2.1 not available, trying v1.1: {e}")
-        dataset = load_dataset('microsoft/ms_marco', 'v1.1', split=split,
-                              cache_dir=cache_dir, streaming=streaming)
+    # MSMARCO v2.1 dataset
+    dataset = load_dataset('microsoft/ms_marco', 'v2.1', split=split, 
+                          cache_dir=cache_dir, streaming=streaming)
     
     pairs = []
     if streaming:
@@ -140,29 +144,27 @@ def load_msmarco_v2_from_hf(split: str = 'train', max_samples: Optional[int] = N
             if not query or not passages:
                 continue
             
-            # Handle different passage formats
-            if isinstance(passages, dict):
-                # Format: {'is_selected': [0,1,0], 'passage_text': ['text1', 'text2', 'text3']}
-                is_selected = passages.get('is_selected', [])
-                passage_texts = passages.get('passage_text', [])
-                for idx, selected in enumerate(is_selected):
-                    if selected == 1 and idx < len(passage_texts):
-                        pairs.append((query, passage_texts[idx]))
-                        break
-            elif isinstance(passages, list):
-                # Format: [{'is_selected': 1, 'passage_text': 'text'}, ...]
+            # MSMARCO v2.1: passages is a list of dicts with 'is_selected' and 'passage_text'
+            if isinstance(passages, list):
                 for passage in passages:
                     if isinstance(passage, dict):
-                        if passage.get('is_selected', 0) == 1:
-                            pairs.append((query, passage.get('passage_text', '')))
+                        is_selected = passage.get('is_selected', 0)
+                        passage_text = passage.get('passage_text', '')
+                        
+                        if is_selected == 1 and passage_text:
+                            pairs.append((query, passage_text))
+                            break  # Take first selected passage
+            # HuggingFace might transform to dict format with lists
+            elif isinstance(passages, dict):
+                is_selected = passages.get('is_selected', [])
+                passage_texts = passages.get('passage_text', [])
+                
+                for idx, selected in enumerate(is_selected):
+                    if selected == 1 and idx < len(passage_texts):
+                        passage_text = passage_texts[idx]
+                        if passage_text:
+                            pairs.append((query, passage_text))
                             break
-                    elif isinstance(passage, str):
-                        # Simple list of strings, take first one
-                        pairs.append((query, passage))
-                        break
-            elif isinstance(passages, str):
-                # Single passage string
-                pairs.append((query, passages))
             
             if max_samples and len(pairs) >= max_samples:
                 break
@@ -176,29 +178,27 @@ def load_msmarco_v2_from_hf(split: str = 'train', max_samples: Optional[int] = N
             if not query or not passages:
                 continue
             
-            # Handle different passage formats
-            if isinstance(passages, dict):
-                # Format: {'is_selected': [0,1,0], 'passage_text': ['text1', 'text2', 'text3']}
-                is_selected = passages.get('is_selected', [])
-                passage_texts = passages.get('passage_text', [])
-                for idx, selected in enumerate(is_selected):
-                    if selected == 1 and idx < len(passage_texts):
-                        pairs.append((query, passage_texts[idx]))
-                        break
-            elif isinstance(passages, list):
-                # Format: [{'is_selected': 1, 'passage_text': 'text'}, ...]
+            # MSMARCO v2.1: passages is a list of dicts with 'is_selected' and 'passage_text'
+            if isinstance(passages, list):
                 for passage in passages:
                     if isinstance(passage, dict):
-                        if passage.get('is_selected', 0) == 1:
-                            pairs.append((query, passage.get('passage_text', '')))
+                        is_selected = passage.get('is_selected', 0)
+                        passage_text = passage.get('passage_text', '')
+                        
+                        if is_selected == 1 and passage_text:
+                            pairs.append((query, passage_text))
+                            break  # Take first selected passage
+            # HuggingFace might transform to dict format with lists
+            elif isinstance(passages, dict):
+                is_selected = passages.get('is_selected', [])
+                passage_texts = passages.get('passage_text', [])
+                
+                for idx, selected in enumerate(is_selected):
+                    if selected == 1 and idx < len(passage_texts):
+                        passage_text = passage_texts[idx]
+                        if passage_text:
+                            pairs.append((query, passage_text))
                             break
-                    elif isinstance(passage, str):
-                        # Simple list of strings, take first one
-                        pairs.append((query, passage))
-                        break
-            elif isinstance(passages, str):
-                # Single passage string
-                pairs.append((query, passages))
     
     print(f"[MSMARCO] Loaded {len(pairs):,} query-passage pairs from {split}")
     return pairs
