@@ -122,20 +122,48 @@ def load_msmarco_v2_from_hf(split: str = 'train', max_samples: Optional[int] = N
     
     print(f"[MSMARCO] Loading {split} split from HuggingFace (streaming={streaming})...")
     # MSMARCO v2.1 dataset identifier
-    dataset = load_dataset('microsoft/ms_marco', 'v2.1', split=split, 
-                          cache_dir=cache_dir, streaming=streaming)
+    try:
+        dataset = load_dataset('microsoft/ms_marco', 'v2.1', split=split, 
+                              cache_dir=cache_dir, streaming=streaming)
+    except Exception as e:
+        # Fallback to v1.1 if v2.1 not available
+        print(f"[MSMARCO] v2.1 not available, trying v1.1: {e}")
+        dataset = load_dataset('microsoft/ms_marco', 'v1.1', split=split,
+                              cache_dir=cache_dir, streaming=streaming)
     
     pairs = []
     if streaming:
         for i, example in enumerate(tqdm(dataset, desc=f"Loading {split}")):
             query = example.get('query', '')
-            passages = example.get('passages', [])
-            if query and passages:
-                # Get positive passage (marked with is_selected=1)
-                for passage in passages:
-                    if passage.get('is_selected', 0) == 1:
-                        pairs.append((query, passage.get('passage_text', '')))
+            passages = example.get('passages', None)
+            
+            if not query or not passages:
+                continue
+            
+            # Handle different passage formats
+            if isinstance(passages, dict):
+                # Format: {'is_selected': [0,1,0], 'passage_text': ['text1', 'text2', 'text3']}
+                is_selected = passages.get('is_selected', [])
+                passage_texts = passages.get('passage_text', [])
+                for idx, selected in enumerate(is_selected):
+                    if selected == 1 and idx < len(passage_texts):
+                        pairs.append((query, passage_texts[idx]))
                         break
+            elif isinstance(passages, list):
+                # Format: [{'is_selected': 1, 'passage_text': 'text'}, ...]
+                for passage in passages:
+                    if isinstance(passage, dict):
+                        if passage.get('is_selected', 0) == 1:
+                            pairs.append((query, passage.get('passage_text', '')))
+                            break
+                    elif isinstance(passage, str):
+                        # Simple list of strings, take first one
+                        pairs.append((query, passage))
+                        break
+            elif isinstance(passages, str):
+                # Single passage string
+                pairs.append((query, passages))
+            
             if max_samples and len(pairs) >= max_samples:
                 break
     else:
@@ -143,12 +171,34 @@ def load_msmarco_v2_from_hf(split: str = 'train', max_samples: Optional[int] = N
         for i in tqdm(range(total), desc=f"Loading {split}"):
             example = dataset[i]
             query = example.get('query', '')
-            passages = example.get('passages', [])
-            if query and passages:
-                for passage in passages:
-                    if passage.get('is_selected', 0) == 1:
-                        pairs.append((query, passage.get('passage_text', '')))
+            passages = example.get('passages', None)
+            
+            if not query or not passages:
+                continue
+            
+            # Handle different passage formats
+            if isinstance(passages, dict):
+                # Format: {'is_selected': [0,1,0], 'passage_text': ['text1', 'text2', 'text3']}
+                is_selected = passages.get('is_selected', [])
+                passage_texts = passages.get('passage_text', [])
+                for idx, selected in enumerate(is_selected):
+                    if selected == 1 and idx < len(passage_texts):
+                        pairs.append((query, passage_texts[idx]))
                         break
+            elif isinstance(passages, list):
+                # Format: [{'is_selected': 1, 'passage_text': 'text'}, ...]
+                for passage in passages:
+                    if isinstance(passage, dict):
+                        if passage.get('is_selected', 0) == 1:
+                            pairs.append((query, passage.get('passage_text', '')))
+                            break
+                    elif isinstance(passage, str):
+                        # Simple list of strings, take first one
+                        pairs.append((query, passage))
+                        break
+            elif isinstance(passages, str):
+                # Single passage string
+                pairs.append((query, passages))
     
     print(f"[MSMARCO] Loaded {len(pairs):,} query-passage pairs from {split}")
     return pairs
