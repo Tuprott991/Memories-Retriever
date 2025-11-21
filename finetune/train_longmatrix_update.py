@@ -1009,6 +1009,10 @@ def export_index(model, tokenizer, device, texts: List[str], out_dir: str, max_l
 
 def parse_args():
     ap = argparse.ArgumentParser()
+    # Config file support
+    ap.add_argument('--config', type=str, default=None, 
+                    help='Path to YAML config file (overrides defaults, CLI args override config)')
+    
     # Data source options
     ap.add_argument('--data_source', type=str, default='tsv', choices=['tsv', 'msmarco'],
                     help='Data source: tsv (local files) or msmarco (HuggingFace)')
@@ -1108,7 +1112,8 @@ def parse_args():
     ap.add_argument('--export_demo_query', type=str, default=None)
     ap.add_argument('--export_demo_topk', type=int, default=5)
 
-    ap.add_argument('--attn_backend', type=str, default='sdpa', choices=['sdpa','matmul'])
+    ap.add_argument('--attn_backend', type=str, default='sdpa', choices=['sdpa','matmul','flash_attn_2'],
+                    help='Attention backend: sdpa (PyTorch SDPA), matmul (manual), or flash_attn_2 (FlashAttention-2)')
     ap.add_argument('--grad_ckpt', action='store_true')
     ap.add_argument('--accum_steps', type=int, default=1)
     ap.add_argument('--allow_tf32', action='store_true')
@@ -1132,7 +1137,34 @@ def parse_args():
     ap.add_argument('--ddp', action='store_true', 
                     help='Enable DDP training (auto-detected with torchrun)')
 
-    return ap.parse_args()
+    # Parse command line args first
+    args = ap.parse_args()
+    
+    # Load config file if specified
+    if args.config:
+        if not os.path.exists(args.config):
+            raise FileNotFoundError(f"Config file not found: {args.config}")
+        
+        print(f"[Config] Loading from {args.config}")
+        with open(args.config, 'r', encoding='utf-8') as f:
+            config_dict = yaml.safe_load(f)
+        
+        # Update args with config values (CLI args take precedence)
+        # Store CLI args that were explicitly set
+        cli_args = {k: v for k, v in vars(args).items() 
+                   if v != ap.get_default(k) or k == 'config'}
+        
+        # Update with config file
+        for key, value in config_dict.items():
+            if hasattr(args, key):
+                # Only override if not explicitly set via CLI
+                if key not in cli_args:
+                    setattr(args, key, value)
+        
+        print(f"[Config] Loaded {len(config_dict)} parameters from config file")
+        print(f"[Config] CLI overrides: {len(cli_args)} parameters")
+    
+    return args
 
 def main():
     args = parse_args()
