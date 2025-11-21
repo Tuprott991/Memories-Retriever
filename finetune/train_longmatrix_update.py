@@ -339,6 +339,7 @@ def mine_hard_negatives_integrated(train_pairs: List[Tuple[str, str]],
                 m3_negatives_chunked, 
                 bm25_negatives_pyserini, 
                 bm25_negatives_rankbm25,
+                bm25_negatives_fast_approximate,
                 pick_device
             )
         except ImportError as e:
@@ -366,7 +367,16 @@ def mine_hard_negatives_integrated(train_pairs: List[Tuple[str, str]],
         
         elif neg_method == 'bm25':
             print(f"[NegMining] Using BM25 lexical negatives (engine={args.bm25_engine})")
-            if args.bm25_engine == 'pyserini':
+            if args.bm25_fast:
+                print("[NegMining] FAST MODE enabled - using approximate BM25 with sampling")
+                triplets = bm25_negatives_fast_approximate(
+                    train_pairs=train_pairs,
+                    k_neg=k_neg,
+                    pool_limit=args.bm25_pool_limit,
+                    max_sample_queries=args.bm25_sample_queries,
+                    margin=args.bm25_margin,
+                )
+            elif args.bm25_engine == 'pyserini':
                 idx_dir = os.path.join(args.output_dir, 'bm25_index')
                 work_dir = os.path.join(args.output_dir, 'bm25_work')
                 os.makedirs(work_dir, exist_ok=True)
@@ -1169,6 +1179,8 @@ def parse_args():
     ap.add_argument('--bm25_k1', type=float, default=0.9, help='BM25 k1 parameter')
     ap.add_argument('--bm25_b', type=float, default=0.4, help='BM25 b parameter')
     ap.add_argument('--bm25_margin', type=int, default=50, help='Extra candidates over k_neg for BM25')
+    ap.add_argument('--bm25_fast', action='store_true', help='Use fast approximate BM25 (10-100x speedup)')
+    ap.add_argument('--bm25_sample_queries', type=int, default=50000, help='Max queries to search in fast mode')
     
     # Combo negative mining options
     ap.add_argument('--k_neg_bm25', type=int, default=None, help='Negatives from BM25 in combo mode')
