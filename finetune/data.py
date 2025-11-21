@@ -243,7 +243,12 @@ def m3_negatives_chunked(
         raise RuntimeError("Need `sentence-transformers` and `faiss-cpu` for --neg_method m3/combo")
 
     device = pick_device(device)
-    st = SentenceTransformer(model_name, device=device)
+    # Force safetensors to avoid torch.load vulnerability (CVE-2025-32434)
+    st = SentenceTransformer(
+        model_name, 
+        device=device,
+        model_kwargs={"use_safetensors": True}
+    )
     dim = st.get_sentence_embedding_dimension()
     print(f"[M3] device={device}, dim={dim}, bs={bs}, pool_limit={pool_limit}")
 
