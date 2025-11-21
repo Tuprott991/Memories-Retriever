@@ -134,11 +134,34 @@ def load_msmarco_v2_from_hf(split: str = 'train', max_samples: Optional[int] = N
     
     # Try loading MSMARCO v2.1 dataset
     try:
-        # Clear cache if corrupted
-        import datasets
-        datasets.builder.has_sufficient_disk_space = lambda *args, **kwargs: True
+        # Clear corrupted cache if exists
+        import shutil
+        from pathlib import Path
         
-        # Load with trust_remote_code for newer datasets format
+        if cache_dir:
+            cache_path = Path(cache_dir)
+        else:
+            cache_path = Path.home() / '.cache' / 'huggingface' / 'datasets' / 'microsoft___ms_marco'
+        
+        # Check if cache exists and might be corrupted
+        if cache_path.exists():
+            version_cache = cache_path / 'v2.1'
+            if version_cache.exists():
+                dataset_info = version_cache / 'dataset_info.json'
+                if dataset_info.exists():
+                    try:
+                        import json
+                        with open(dataset_info, 'r') as f:
+                            info = json.load(f)
+                            # Check if features are corrupted
+                            if 'features' in info and not isinstance(info['features'], dict):
+                                print(f"[MSMARCO] Detected corrupted cache, removing: {version_cache}")
+                                shutil.rmtree(version_cache)
+                    except Exception:
+                        print(f"[MSMARCO] Cache validation failed, removing: {version_cache}")
+                        shutil.rmtree(version_cache)
+        
+        # Load with download_mode='force_redownload' if cache was corrupted
         dataset = load_dataset(
             'microsoft/ms_marco', 
             'v2.1', 
@@ -148,20 +171,38 @@ def load_msmarco_v2_from_hf(split: str = 'train', max_samples: Optional[int] = N
             trust_remote_code=True
         )
     except Exception as e:
-        print(f"[MSMARCO] Error loading with v2.1 config: {e}")
-        print(f"[MSMARCO] Trying without config name...")
+        print(f"[MSMARCO] Error loading v2.1: {e}")
+        print(f"[MSMARCO] Attempting to clear cache and retry...")
+        
+        # Clear the entire ms_marco cache
+        import shutil
+        from pathlib import Path
+        
+        if cache_dir:
+            cache_path = Path(cache_dir) / 'microsoft___ms_marco'
+        else:
+            cache_path = Path.home() / '.cache' / 'huggingface' / 'datasets' / 'microsoft___ms_marco'
+        
+        if cache_path.exists():
+            print(f"[MSMARCO] Removing cache directory: {cache_path}")
+            shutil.rmtree(cache_path)
+        
+        # Retry after clearing cache
         try:
             dataset = load_dataset(
-                'microsoft/ms_marco',
-                split=split,
-                cache_dir=cache_dir,
+                'microsoft/ms_marco', 
+                'v2.1', 
+                split=split, 
+                cache_dir=cache_dir, 
                 streaming=streaming,
-                trust_remote_code=True
+                trust_remote_code=True,
+                download_mode='force_redownload'
             )
+            print(f"[MSMARCO] Successfully loaded after cache clear")
         except Exception as e2:
-            print(f"[MSMARCO] Error: {e2}")
-            print(f"[MSMARCO] Please ensure the dataset is properly installed or use --data_source tsv")
-            raise
+            print(f"[MSMARCO] Final error: {e2}")
+            print(f"[MSMARCO] Please manually clear cache: rm -rf ~/.cache/huggingface/datasets/microsoft___ms_marco")
+            raise RuntimeError(f"Failed to load MSMARCO v2.1. Try: rm -rf ~/.cache/huggingface/datasets/microsoft___ms_marco")
     
     pairs = []
     if streaming:
