@@ -384,7 +384,7 @@ export default function FamilyHub() {
         <div className="flex items-center justify-between max-w-7xl mx-auto">
           <Link to="/" className="flex items-center gap-3">
             <BrainLogo size="sm" className="scale-110" />
-            <span className="text-white font-medium text-lg">Memory Retriever x LongMatrix</span>
+            <span className="text-white font-medium text-lg">Memory Retriever x LORAN</span>
           </Link>
           <h1 className="text-2xl font-light text-white">Family Archive</h1>
           <div className="w-10"></div>

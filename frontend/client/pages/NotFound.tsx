@@ -21,7 +21,7 @@ const NotFound = () => {
             Memory not found
           </p>
           <p className="text-gray-400">
-            This path doesn't exist in your Memory Retriever x LongMatrix
+            This path doesn't exist in your Memory Retriever x LORAN
           </p>
         </div>
         <Link

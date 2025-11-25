@@ -63,7 +63,7 @@ export default function MemoryPalace() {
   const [messages, setMessages] = useState<Message[]>([
     {
       role: "assistant",
-      content: "Welcome to your Memory Retriever x LongMatrix. What would you like to explore today?",
+      content: "Welcome to your Memory Retriever x LORAN. What would you like to explore today?",
     },
   ]);
   const [input, setInput] = useState("");
@@ -212,7 +212,7 @@ export default function MemoryPalace() {
         <div className="flex items-center justify-between max-w-7xl mx-auto">
           <Link to="/" className="flex items-center gap-2">
             <BrainLogo size="sm" />
-            <span className="text-white font-medium">Memory Retriever x LongMatrix</span>
+            <span className="text-white font-medium">Memory Retriever x LORAN</span>
           </Link>
           <button
             onClick={() => setShowProfileModal(true)}

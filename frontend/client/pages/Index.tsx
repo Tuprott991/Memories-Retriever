@@ -19,7 +19,7 @@ export default function Index() {
         {/* Title */}
         <div className="space-y-4 animate-fade-in animate-delay-100">
           <h1 className="text-5xl md:text-6xl font-light text-white tracking-wide">
-            Memory Retriever x LongMatrix
+            Memory Retriever x LORAN
           </h1>
           <p className="text-gray-400 text-sm md:text-base max-w-md mx-auto">
             A compassionate companion for cherished memories
