@@ -1,4 +1,4 @@
-# LongMatrix Memories Retriever
+# LORAN Memories Retriever
 
 A complete end-to-end system for personal memory retrieval using a custom-trained neural retrieval model. This project demonstrates the full machine learning pipeline from model architecture design, large-scale pre-training on MSMARCO, synthetic data generation, domain-specific finetuning, to production deployment in a real-world application.
 
@@ -16,7 +16,7 @@ A complete end-to-end system for personal memory retrieval using a custom-traine
 
 ## Overview
 
-This project implements a complete retrieval system for personal memories (photos, videos, audio) using natural language queries. The core innovation is the **LongMatrix** architecture - a lightweight neural retrieval model that combines lexical matching with semantic understanding through a unique multi-vector late interaction mechanism.
+This project implements a complete retrieval system for personal memories (photos, videos, audio) using natural language queries. The core innovation is the **LORAN** architecture - a lightweight neural retrieval model that combines lexical matching with semantic understanding through a unique multi-vector late interaction mechanism.
 
 **Key Highlights:**
 
@@ -30,9 +30,9 @@ This project implements a complete retrieval system for personal memories (photo
 
 ## Model Architecture
 
-### LongMatrix: Multi-Vector Retrieval with Late Interaction
+### LORAN: Multi-Vector Retrieval with Late Interaction
 
-The LongMatrix model is a lightweight neural retrieval architecture inspired by ColBERT but optimized for efficiency and adaptability.
+The LORAN model is a lightweight neural retrieval architecture inspired by ColBERT but optimized for efficiency and adaptability.
 
 #### Architecture Components
 
@@ -141,7 +141,7 @@ Multi-GPU training using PyTorch DDP (Distributed Data Parallel):
 
 ```bash
 torchrun --nproc_per_node=4 --master_port=29500 \
-  finetune/train_longmatrix_update.py \
+  finetune/train_LORAN_update.py \
   --data_source msmarco \
   --max_train_rows 500000 \
   --neg_method combo \
@@ -288,7 +288,7 @@ dev_tsv: data/processed/dev.tsv
 output_dir: runs/memories_retriever
 
 # Resume from MSMARCO checkpoint
-resume: finetune/longmatrix.pt
+resume: finetune/LORAN.pt
 
 # Model architecture
 d_lex_emb: 512
@@ -324,11 +324,11 @@ attn_backend: sdpa
 
 ```bash
 # Single GPU training
-python finetune/train_longmatrix.py --config finetune/config_memories.yaml
+python finetune/train_LORAN.py --config finetune/config_memories.yaml
 
 # Multi-GPU training (4 GPUs)
 torchrun --nproc_per_node=4 --master_port=29500 \
-  finetune/train_longmatrix.py \
+  finetune/train_LORAN.py \
   --config finetune/config_memories.yaml --ddp
 ```
 
@@ -382,7 +382,7 @@ A production-ready web application demonstrating the trained model in action.
        │                         │
        ▼                         ▼
 ┌──────────────┐          ┌──────────────┐
-│  LongMatrix  │          │    Neo4j     │
+│  LORAN  │          │    Neo4j     │
 │   Embeddings │          │  Graph DB    │
 └──────┬───────┘          └──────────────┘
        │
@@ -401,7 +401,7 @@ A production-ready web application demonstrating the trained model in action.
 
 ### Backend Features
 
-1. **LongMatrix Integration**
+1. **LORAN Integration**
    - Custom trained model for semantic search
    - Fast vector similarity search with FAISS
    - Multi-vector query representations
@@ -441,7 +441,7 @@ A production-ready web application demonstrating the trained model in action.
 
 3. **Semantic Search**
    - Natural language search
-   - Results ranked by LongMatrix model
+   - Results ranked by LORAN model
    - Preview and full-view modes
 
 4. **Modern UI**
@@ -508,8 +508,8 @@ Visit `http://localhost:5173` to access the application.
 ```
 Memories-Retriever/
 ├── finetune/                      # Model training code
-│   ├── train_longmatrix.py        # Main training script
-│   ├── train_longmatrix_update.py # MSMARCO training script
+│   ├── train_LORAN.py        # Main training script
+│   ├── train_LORAN_update.py # MSMARCO training script
 │   ├── data.py                    # Hard negatives mining
 │   ├── config_memories.yaml       # Memory finetuning config
 │   ├── ddp_4gpu_allmini.yaml      # Multi-GPU config
@@ -587,7 +587,7 @@ python finetune/data_converter.py \
 ```bash
 # Pre-training on MSMARCO
 torchrun --nproc_per_node=4 --master_port=29500 \
-  finetune/train_longmatrix_update.py \
+  finetune/train_LORAN_update.py \
   --data_source msmarco \
   --max_train_rows 500000 \
   --neg_method combo \
@@ -600,11 +600,11 @@ torchrun --nproc_per_node=4 --master_port=29500 \
 
 ```bash
 # Single GPU
-python finetune/train_longmatrix.py --config finetune/config_memories.yaml
+python finetune/train_LORAN.py --config finetune/config_memories.yaml
 
 # Multi-GPU (4 GPUs)
 torchrun --nproc_per_node=4 \
-  finetune/train_longmatrix.py \
+  finetune/train_LORAN.py \
   --config finetune/config_memories.yaml --ddp
 ```
 
